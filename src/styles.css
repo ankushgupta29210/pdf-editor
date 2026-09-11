@@ -204,6 +204,22 @@ select {
   color: var(--muted);
 }
 
+.empty-logo {
+  display: inline-block;
+  line-height: 0;
+}
+
+.empty-logo img {
+  width: 160px;
+  height: auto;
+  filter: drop-shadow(0 6px 18px #0008);
+  transition: transform 0.15s ease;
+}
+
+.empty-logo:hover img {
+  transform: scale(1.03);
+}
+
 .empty-card h1 {
   font-size: 24px;
   color: var(--text);

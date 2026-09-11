@@ -391,7 +391,15 @@ export default function App() {
       {pages.length === 0 ? (
         <main className="empty">
           <div className="empty-card">
-            <Icon name="files" size={40} />
+            <a
+              className="empty-logo"
+              href="https://ankushguptatech.com/"
+              target="_blank"
+              rel="noopener"
+              title="Ankush Gupta Tech"
+            >
+              <img src={`${import.meta.env.BASE_URL}agt-logo.png`} alt="Ankush Gupta Tech" width={160} height={124} />
+            </a>
             <h1>Edit, merge and compress PDFs</h1>
             <p>
               Drop PDFs or images here, or open them below. Everything runs inside your browser —
@@ -424,8 +432,12 @@ export default function App() {
               </li>
             </ul>
             <p className="empty-footer">
-              <a href="/privacy.html">Privacy</a> · Your files are processed on this device and are
-              never uploaded.
+              A free tool by{' '}
+              <a href="https://ankushguptatech.com/" target="_blank" rel="noopener">
+                Ankush Gupta Tech
+              </a>{' '}
+              · <a href="/privacy.html">Privacy</a> · Your files are processed on this device and
+              are never uploaded.
             </p>
           </div>
         </main>

@@ -54,8 +54,6 @@ be headers are delivered from the page itself:
 
 - Fill in the `TODO` markers in [public/privacy.html](public/privacy.html) — entity name,
   contact email, date, and which of the analytics/error-reporting clauses actually apply
-- Make `<link rel="canonical">` in [index.html](index.html) an absolute URL on your domain,
-  and add `og:url` / `og:image`
 - Add analytics if you want them. Prefer a cookieless option (Plausible, Fathom) so you
   don't need a consent banner and don't undercut the privacy pitch.
 - Add error reporting (Sentry) if you want to hear about failed exports — scrub file names,
