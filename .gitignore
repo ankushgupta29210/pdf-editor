@@ -8,10 +8,6 @@ public/pdfjs
 # copied from node_modules by scripts/copy-tesseract-assets.mjs
 public/tesseract
 
-# firebase
-.firebase
-*-debug.log
-
 tsconfig.tsbuildinfo
 
 # debug/scratch artifacts from manual testing

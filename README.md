@@ -13,36 +13,51 @@ npm run preview  # serve dist/ exactly as it will be hosted
 
 `dist/` is plain static files — host it anywhere.
 
-## Deploying to Firebase Hosting
+## Deploying to GitHub Pages
 
-```bash
-npm i -g firebase-tools
-firebase login
-```
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml) builds `dist/` and publishes
+it with `actions/deploy-pages` on every push to `main` (or manually via *Run workflow*).
+There is no CLI step — pushing is deploying.
 
-Put your project id in [.firebaserc](.firebaserc) (it currently says
-`REPLACE_WITH_YOUR_FIREBASE_PROJECT_ID`), then:
+One-time setup:
 
-```bash
-npm run deploy      # build + firebase deploy --only hosting
-```
+1. Push the repo to GitHub, then in **Settings → Pages** set *Source* to **GitHub Actions**.
+2. The custom domain comes from [public/CNAME](public/CNAME) (`pdfeditor.ankushguptatech.com`),
+   which Vite copies into `dist/` so it survives every deploy. At your DNS provider add a
+   `CNAME` record for `pdfeditor` pointing at `<your-github-username>.github.io`, then back
+   in **Settings → Pages** tick **Enforce HTTPS** once the certificate is issued.
+3. Serving from a custom domain means the site lives at `/`, so `base` in
+   [vite.config.ts](vite.config.ts) stays at its default. If you drop the custom domain and
+   serve from `<user>.github.io/<repo>/` instead, delete `public/CNAME` and set
+   `base: '/<repo>/'` — see below.
 
-[firebase.json](firebase.json) is already set up with an SPA rewrite, immutable
-year-long caching for `/assets/**`, `no-cache` on `index.html` so releases take effect
-immediately, an explicit `text/javascript` type for `.mjs` (the pdf.js worker fails to
-load if the host guesses wrong), and a strict Content-Security-Policy. Firebase serves
-everything over HTTPS with Brotli automatically.
+The `dist/` output is plain static files, so it hosts equally well anywhere else (Netlify,
+Cloudflare Pages, S3) with no changes.
+
+### Security headers without a server
+
+GitHub Pages does not let you set response headers, so the policies that would normally
+be headers are delivered from the page itself:
+
+- **Content-Security-Policy** is injected as a `<meta http-equiv>` tag by the `cspMeta`
+  plugin in [vite.config.ts](vite.config.ts), production builds only (the dev server needs
+  an inline Fast Refresh script that the policy would block). It allows
+  `'wasm-unsafe-eval'` for the OCR engine and `tessdata.projectnaptha.com` in
+  `connect-src`, which is where tesseract.js fetches language models on first use. Any
+  third-party script you add later must be listed in `script-src` there.
+- **Referrer-Policy** is a `<meta name="referrer">` tag in [index.html](index.html).
+- `Cache-Control` tuning is not available, but Vite's hashed `/assets/**` filenames
+  make that a non-issue. `frame-ancestors`, `Permissions-Policy` and COOP cannot be
+  expressed without headers and are simply not set.
 
 ### Before you go live
 
-- Set your project id in `.firebaserc`
 - Fill in the `TODO` markers in [public/privacy.html](public/privacy.html) — entity name,
   contact email, date, and which of the analytics/error-reporting clauses actually apply
 - Make `<link rel="canonical">` in [index.html](index.html) an absolute URL on your domain,
   and add `og:url` / `og:image`
-- Add analytics if you want them. Prefer a cookieless option (Plausible, Fathom, Firebase
-  Analytics) so you don't need a consent banner and don't undercut the privacy pitch. Any
-  third-party script must be added to the CSP `script-src` in `firebase.json`.
+- Add analytics if you want them. Prefer a cookieless option (Plausible, Fathom) so you
+  don't need a consent banner and don't undercut the privacy pitch.
 - Add error reporting (Sentry) if you want to hear about failed exports — scrub file names,
   never send file bytes
 
