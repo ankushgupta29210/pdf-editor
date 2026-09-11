@@ -44,6 +44,10 @@ function cspMeta(): Plugin {
 }
 
 export default defineConfig({
+  // Relative base: works whether the build is served from a domain
+  // root (the custom domain) or from a GitHub Pages project subpath
+  // (https://<user>.github.io/<repo>/) before DNS is pointed.
+  base: './',
   plugins: [react(), cspMeta()],
   server: { port: 5173 },
 })
