@@ -1,0 +1,23 @@
+node_modules
+dist
+*.local
+
+# copied from node_modules by scripts/copy-pdfjs-assets.mjs
+public/pdfjs
+
+# copied from node_modules by scripts/copy-tesseract-assets.mjs
+public/tesseract
+
+# firebase
+.firebase
+*-debug.log
+
+tsconfig.tsbuildinfo
+
+# debug/scratch artifacts from manual testing
+_ocr_b64*.txt
+_ocr_out*.pdf
+_to_delete/
+_redact_test.pdf
+_redact_out.pdf
+_gen_test.mjs
