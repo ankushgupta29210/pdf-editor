@@ -7,6 +7,7 @@ import { CompressDialog } from './components/CompressDialog'
 import { OcrDialog } from './components/OcrDialog'
 import { ImagesDialog } from './components/ImagesDialog'
 import { Icon } from './components/Icon'
+import { Landing } from './components/Landing'
 import { displaySize, formatBytes } from './lib/geometry'
 import type { ImageAnn, Tool } from './lib/types'
 import type { FallbackPage } from './lib/export'
@@ -260,115 +261,118 @@ export default function App() {
         intake([...e.dataTransfer.files])
       }}
     >
-      <header className="topbar">
-        <div className="brand">
-          <Icon name="files" size={18} />
-          <span>PDF Editor</span>
-        </div>
+      <input
+        ref={fileInput}
+        type="file"
+        accept={`application/pdf,${IMAGE_ACCEPT}`}
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])]
+          e.target.value = ''
+          if (files.length) intake(files)
+        }}
+      />
+      <input
+        ref={imageInput}
+        type="file"
+        accept={IMAGE_ACCEPT}
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (file) void placeImage(file)
+        }}
+      />
+      <input
+        ref={pageImageInput}
+        type="file"
+        accept={IMAGE_ACCEPT}
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])]
+          e.target.value = ''
+          if (files.length) setImageQueue(files)
+        }}
+      />
 
-        <div className="group">
-          <button className="primary" onClick={() => fileInput.current?.click()}>
-            <Icon name="plus" /> {pages.length ? 'Add files' : 'Open PDFs'}
-          </button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept={`application/pdf,${IMAGE_ACCEPT}`}
-            multiple
-            hidden
-            onChange={(e) => {
-              const files = [...(e.target.files ?? [])]
-              e.target.value = ''
-              if (files.length) intake(files)
-            }}
-          />
-          <input
-            ref={imageInput}
-            type="file"
-            accept={IMAGE_ACCEPT}
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              e.target.value = ''
-              if (file) void placeImage(file)
-            }}
-          />
-          <input
-            ref={pageImageInput}
-            type="file"
-            accept={IMAGE_ACCEPT}
-            multiple
-            hidden
-            onChange={(e) => {
-              const files = [...(e.target.files ?? [])]
-              e.target.value = ''
-              if (files.length) setImageQueue(files)
-            }}
-          />
-        </div>
+      {pages.length > 0 && (
+        <header className="topbar">
+          <div className="brand">
+            <Icon name="files" size={18} />
+            <span>PDF Editor</span>
+          </div>
 
-        {pages.length > 0 && (
-          <div className="group compact-only">
-            <button
-              className={panel === 'pages' ? 'on' : ''}
-              onClick={() => setPanel(panel === 'pages' ? null : 'pages')}
-              title="Pages"
-            >
-              <Icon name="files" />
-            </button>
-            <button
-              className={panel === 'props' ? 'on' : ''}
-              onClick={() => setPanel(panel === 'props' ? null : 'props')}
-              title="Properties"
-            >
-              <Icon name="edit" />
+          <div className="group">
+            <button className="primary" onClick={() => fileInput.current?.click()}>
+              <Icon name="plus" /> {pages.length ? 'Add files' : 'Open PDFs'}
             </button>
           </div>
-        )}
 
-        <div className="group">
-          <button onClick={store.undo} disabled={!store.past.length} title="Undo (Ctrl+Z)">
-            <Icon name="undo" />
-          </button>
-          <button onClick={store.redo} disabled={!store.future.length} title="Redo (Ctrl+Shift+Z)">
-            <Icon name="redo" />
-          </button>
-        </div>
+          {pages.length > 0 && (
+            <div className="group compact-only">
+              <button
+                className={panel === 'pages' ? 'on' : ''}
+                onClick={() => setPanel(panel === 'pages' ? null : 'pages')}
+                title="Pages"
+              >
+                <Icon name="files" />
+              </button>
+              <button
+                className={panel === 'props' ? 'on' : ''}
+                onClick={() => setPanel(panel === 'props' ? null : 'props')}
+                title="Properties"
+              >
+                <Icon name="edit" />
+              </button>
+            </div>
+          )}
 
-        <div className="group">
-          <button onClick={() => store.setZoom(zoom / 1.2)} title="Zoom out">
-            <Icon name="zoomOut" />
-          </button>
-          <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => store.setZoom(zoom * 1.2)} title="Zoom in">
-            <Icon name="zoomIn" />
-          </button>
-          <button onClick={fitZoom} title="Fit page">
-            <Icon name="fit" />
-          </button>
-        </div>
-
-        <div className="spacer" />
-
-        {pages.length > 0 && (
-          <div className="doc-stats" title="Source bytes currently loaded">
-            {pages.length} page{pages.length > 1 ? 's' : ''} · {sources.size} file
-            {sources.size > 1 ? 's' : ''} · {formatBytes(totalSize)}
+          <div className="group">
+            <button onClick={store.undo} disabled={!store.past.length} title="Undo (Ctrl+Z)">
+              <Icon name="undo" />
+            </button>
+            <button onClick={store.redo} disabled={!store.future.length} title="Redo (Ctrl+Shift+Z)">
+              <Icon name="redo" />
+            </button>
           </div>
-        )}
 
-        <div className="group">
-          <button onClick={() => setShowOcr(true)} disabled={!pages.length} title="Make scanned pages searchable">
-            <Icon name="ocr" /> Make searchable
-          </button>
-          <button onClick={() => setShowCompress(true)} disabled={!pages.length}>
-            <Icon name="compress" /> Compress
-          </button>
-          <button className="primary" onClick={download} disabled={!pages.length}>
-            <Icon name="download" /> Download
-          </button>
-        </div>
-      </header>
+          <div className="group">
+            <button onClick={() => store.setZoom(zoom / 1.2)} title="Zoom out">
+              <Icon name="zoomOut" />
+            </button>
+            <span className="zoom-label">{Math.round(zoom * 100)}%</span>
+            <button onClick={() => store.setZoom(zoom * 1.2)} title="Zoom in">
+              <Icon name="zoomIn" />
+            </button>
+            <button onClick={fitZoom} title="Fit page">
+              <Icon name="fit" />
+            </button>
+          </div>
+
+          <div className="spacer" />
+
+          {pages.length > 0 && (
+            <div className="doc-stats" title="Source bytes currently loaded">
+              {pages.length} page{pages.length > 1 ? 's' : ''} · {sources.size} file
+              {sources.size > 1 ? 's' : ''} · {formatBytes(totalSize)}
+            </div>
+          )}
+
+          <div className="group">
+            <button onClick={() => setShowOcr(true)} disabled={!pages.length} title="Make scanned pages searchable">
+              <Icon name="ocr" /> Make searchable
+            </button>
+            <button onClick={() => setShowCompress(true)} disabled={!pages.length}>
+              <Icon name="compress" /> Compress
+            </button>
+            <button className="primary" onClick={download} disabled={!pages.length}>
+              <Icon name="download" /> Download
+            </button>
+          </div>
+        </header>
+      )}
 
       {error && (
         <div className="banner error">
@@ -389,58 +393,10 @@ export default function App() {
       )}
 
       {pages.length === 0 ? (
-        <main className="empty">
-          <div className="empty-card">
-            <a
-              className="empty-logo"
-              href="https://ankushguptatech.com/"
-              target="_blank"
-              rel="noopener"
-              title="Ankush Gupta Tech"
-            >
-              <img src={`${import.meta.env.BASE_URL}agt-logo.png`} alt="Ankush Gupta Tech" width={160} height={124} />
-            </a>
-            <h1>Edit, merge and compress PDFs</h1>
-            <p>
-              Drop PDFs or images here, or open them below. Everything runs inside your browser —
-              no file ever leaves this device.
-            </p>
-            <div className="empty-actions">
-              <button className="primary big" onClick={() => fileInput.current?.click()}>
-                <Icon name="plus" /> Choose files
-              </button>
-              <button className="ghost big" onClick={() => pageImageInput.current?.click()}>
-                <Icon name="image" /> Images to PDF
-              </button>
-            </div>
-            <ul className="features">
-              <li>
-                <strong>Merge</strong> any number of PDFs, reorder pages by dragging, rotate,
-                duplicate, delete or extract them.
-              </li>
-              <li>
-                <strong>Edit</strong> with text boxes, highlights, shapes, freehand signatures,
-                images and whiteout.
-              </li>
-              <li>
-                <strong>Convert images</strong> — PNG, JPEG, WebP, AVIF, GIF, BMP or SVG become
-                pages at the size, orientation and scaling you pick.
-              </li>
-              <li>
-                <strong>Compress</strong> with presets from “keep text sharp” down to aggressive
-                rasterising.
-              </li>
-            </ul>
-            <p className="empty-footer">
-              A free tool by{' '}
-              <a href="https://ankushguptatech.com/" target="_blank" rel="noopener">
-                Ankush Gupta Tech
-              </a>{' '}
-              · <a href="/privacy.html">Privacy</a> · Your files are processed on this device and
-              are never uploaded.
-            </p>
-          </div>
-        </main>
+        <Landing
+          onChooseFiles={() => fileInput.current?.click()}
+          onImagesToPdf={() => pageImageInput.current?.click()}
+        />
       ) : (
         <main className="workspace">
           <nav className="tool-rail">
