@@ -1,15 +1,26 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel-2: #1e222b;
-  --line: #2a2f3a;
-  --text: #e6e9ef;
-  --muted: #97a0b0;
-  --accent: #4c8dff;
-  --accent-soft: #23385e;
+  /* Same ink-and-scanner-light identity as the landing page, so opening a
+     file doesn't drop you into a visually unrelated app. */
+  --bg: #0a0d13;
+  --panel: #12151f;
+  --panel-2: #1a2030;
+  --line: #242b3c;
+  --line-soft: #1c2231;
+  --text: #eef1f6;
+  --muted: #8b93a9;
+  --muted-faint: #5b6478;
+  --accent: #4ecdff;
+  --accent-2: #8b6bff;
+  --accent-ink: #06121c;
+  --accent-tint: #d8f3ff;
+  --accent-soft: rgba(78, 205, 255, 0.16);
+  --accent-soft-border: rgba(78, 205, 255, 0.45);
   --danger: #f0533d;
   --good: #35c98a;
-  --radius: 8px;
+  --radius: 10px;
+  --display: ui-sans-serif, system-ui, "Segoe UI Variable Display", "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   color-scheme: dark;
 }
 
@@ -27,7 +38,8 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  font: 13px/1.45 var(--display);
+  -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
 
@@ -54,14 +66,14 @@ button:disabled {
 }
 
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+  color: var(--accent-ink);
+  font-weight: 700;
 }
 
 button.primary:hover:not(:disabled) {
-  background: #5f9bff;
+  filter: brightness(1.08);
 }
 
 button.ghost {
@@ -75,8 +87,8 @@ button.danger:hover:not(:disabled) {
 
 button.on {
   background: var(--accent-soft);
-  border-color: #3c5a92;
-  color: #cfe0ff;
+  border-color: var(--accent-soft-border);
+  color: var(--accent-tint);
 }
 
 input[type='range'] {
@@ -116,12 +128,12 @@ select {
   inset: 12px;
   border: 2px dashed var(--accent);
   border-radius: 14px;
-  background: #4c8dff14;
+  background: var(--accent-soft);
   display: grid;
   place-items: center;
   font-size: 16px;
   font-weight: 600;
-  color: #cfe0ff;
+  color: var(--accent-tint);
   z-index: 60;
   pointer-events: none;
 }
@@ -129,6 +141,7 @@ select {
 /* ---------- top bar ---------- */
 
 .topbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -138,14 +151,31 @@ select {
   flex: none;
 }
 
+/* A quiet signature: the same scanner-beam gradient that runs through the
+   landing page, here as a 2px seam instead of an animated sweep. */
+.topbar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
 .brand {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-weight: 650;
+  gap: 8px;
+  font-weight: 700;
+  font-family: var(--display);
   letter-spacing: 0.01em;
   padding-right: 6px;
-  color: #cfd6e4;
+  color: var(--text);
+}
+
+.brand svg {
+  color: var(--accent);
 }
 
 .group {
@@ -153,8 +183,9 @@ select {
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border-radius: 8px;
-  background: #ffffff08;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  border: 1px solid var(--line-soft);
 }
 
 .spacer {
@@ -277,7 +308,7 @@ select {
   border-radius: var(--radius);
   padding: 4px;
   cursor: pointer;
-  background: #ffffff06;
+  background: var(--panel-2);
 }
 
 .thumb:hover {
@@ -285,7 +316,7 @@ select {
 }
 
 .thumb.selected {
-  border-color: #3c5a92;
+  border-color: var(--accent-soft-border);
   background: var(--accent-soft);
 }
 
@@ -300,6 +331,7 @@ select {
   overflow: hidden;
   background: #fff;
   border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .thumb-frame img {
@@ -359,7 +391,11 @@ select {
 
 .stage {
   overflow: auto;
-  background: #0b0d11;
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -373,7 +409,7 @@ select {
 .page-display {
   position: relative;
   background: #fff;
-  box-shadow: 0 8px 34px #0009;
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7), 0 2px 10px rgba(0, 0, 0, 0.4);
   /* With the select tool, touch should still pan and pinch the stage. */
   touch-action: pan-x pan-y pinch-zoom;
 }
@@ -596,14 +632,15 @@ select {
   overflow: auto;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 24px 60px #000b;
+  border-radius: 14px;
+  box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.75);
 }
 
 .modal header {
   display: flex;
   align-items: center;
   padding: 14px 16px;
+  background: var(--panel-2);
   border-bottom: 1px solid var(--line);
 }
 
@@ -632,6 +669,7 @@ select {
   gap: 8px;
   justify-content: flex-end;
   padding: 12px 16px;
+  background: var(--panel-2);
   border-top: 1px solid var(--line);
 }
 
@@ -760,8 +798,9 @@ select {
   gap: 12px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 16px 22px;
+  box-shadow: 0 20px 50px -15px rgba(0, 0, 0, 0.6);
 }
 
 .spinner {
@@ -1026,7 +1065,7 @@ select {
   .modal {
     width: 100%;
     max-height: 100vh;
-    border-radius: 12px 12px 0 0;
+    border-radius: 14px 14px 0 0;
   }
 
   .modal-backdrop {
