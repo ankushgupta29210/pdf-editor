@@ -4,6 +4,7 @@ import { PageList } from './components/PageList'
 import { PageView } from './components/PageView'
 import { Properties } from './components/Properties'
 import { CompressDialog } from './components/CompressDialog'
+import { ShrinkDialog } from './components/ShrinkDialog'
 import { OcrDialog } from './components/OcrDialog'
 import { ImagesDialog } from './components/ImagesDialog'
 import { Icon } from './components/Icon'
@@ -12,6 +13,7 @@ import { displaySize, formatBytes } from './lib/geometry'
 import type { ImageAnn, Tool } from './lib/types'
 import type { FallbackPage } from './lib/export'
 import { IMAGE_ACCEPT, isImageFile, type ImagePageOptions } from './lib/image'
+import { maxFileBytes } from './lib/limits'
 import { uid } from './lib/uid'
 
 /** Explains which pages had to be flattened to images, and why. */
@@ -54,24 +56,32 @@ export default function App() {
   } = store
 
   const [showCompress, setShowCompress] = useState(false)
+  /** A PDF too big for the editor, or one picked explicitly for shrinking. */
+  const [shrinkFile, setShrinkFile] = useState<File | null>(null)
   const [showOcr, setShowOcr] = useState(false)
   const [imageQueue, setImageQueue] = useState<File[] | null>(null)
   /** On narrow screens the side panels become drawers; null means both closed. */
   const [panel, setPanel] = useState<'pages' | 'props' | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const shrinkInput = useRef<HTMLInputElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const pageImageInput = useRef<HTMLInputElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
 
   /**
    * PDFs are merged straight away; images go through the dialog so their page
-   * size and scaling can be chosen before they become pages.
+   * size and scaling can be chosen before they become pages. A PDF too big for
+   * the editor is not an error — shrinking it is almost always why someone
+   * brought a file that size here, so it goes to the compressor instead.
    */
   function intake(files: File[]) {
     const pdfs = files.filter((f) => !isImageFile(f))
     const imgs = files.filter(isImageFile)
-    if (pdfs.length) void store.addFiles(pdfs)
+    const huge = pdfs.filter((f) => f.size > maxFileBytes())
+    const rest = pdfs.filter((f) => f.size <= maxFileBytes())
+    if (huge.length) setShrinkFile(huge[0])
+    if (rest.length) void store.addFiles(rest)
     if (imgs.length) setImageQueue(imgs)
   }
 
@@ -274,6 +284,17 @@ export default function App() {
         }}
       />
       <input
+        ref={shrinkInput}
+        type="file"
+        accept="application/pdf"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (file) setShrinkFile(file)
+        }}
+      />
+      <input
         ref={imageInput}
         type="file"
         accept={IMAGE_ACCEPT}
@@ -367,6 +388,9 @@ export default function App() {
             <button onClick={() => setShowCompress(true)} disabled={!pages.length}>
               <Icon name="compress" /> Compress
             </button>
+            <button onClick={() => shrinkInput.current?.click()} title="Shrink a file too big to open here">
+              <Icon name="file" /> Large file
+            </button>
             <button className="primary" onClick={download} disabled={!pages.length}>
               <Icon name="download" /> Download
             </button>
@@ -396,6 +420,7 @@ export default function App() {
         <Landing
           onChooseFiles={() => fileInput.current?.click()}
           onImagesToPdf={() => pageImageInput.current?.click()}
+          onShrinkBigPdf={() => shrinkInput.current?.click()}
         />
       ) : (
         <main className="workspace">
@@ -495,6 +520,8 @@ export default function App() {
         <CompressDialog filename={filename} onClose={() => setShowCompress(false)} />
       )}
       {showOcr && <OcrDialog filename={filename} onClose={() => setShowOcr(false)} />}
+
+      {shrinkFile && <ShrinkDialog file={shrinkFile} onClose={() => setShrinkFile(null)} />}
 
       {imageQueue && (
         <ImagesDialog

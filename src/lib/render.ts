@@ -50,6 +50,29 @@ export function renderPageToCanvas(
   }
 }
 
+/**
+ * Re-encoding an already-painted canvas costs nothing next to rendering it, so
+ * the shrink pass uses this to try a page at a second quality without asking
+ * pdf.js to draw it again.
+ */
+export async function encodeCanvasJpeg(
+  canvas: HTMLCanvasElement,
+  quality: number,
+  pageNumber?: number,
+): Promise<Uint8Array> {
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, 'image/jpeg', quality),
+  )
+  if (!blob) {
+    throw new Error(
+      pageNumber
+        ? `Could not encode page ${pageNumber} as an image.`
+        : 'Could not encode the page as an image.',
+    )
+  }
+  return new Uint8Array(await blob.arrayBuffer())
+}
+
 export interface RasterResult {
   bytes: Uint8Array
   /** pixel size of the encoded image */
@@ -107,11 +130,7 @@ export async function renderPageToJpeg(
     ctx.putImageData(img, 0, 0)
   }
 
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/jpeg', opts.quality),
-  )
-  if (!blob) throw new Error(`Could not encode page ${pageIndex + 1} as an image.`)
-  const bytes = new Uint8Array(await blob.arrayBuffer())
+  const bytes = await encodeCanvasJpeg(canvas, opts.quality, pageIndex + 1)
   page.cleanup()
   return {
     bytes,

@@ -24,12 +24,19 @@ function pdfjs() {
 /**
  * pdf.js transfers (and detaches) the buffer it is handed, so every call gets
  * its own copy — the original bytes stay usable for pdf-lib on export.
+ *
+ * `handOver` opts out of that copy: the caller gives up its bytes for good and
+ * they are detached on return. Only the shrink flow uses it, where copying a
+ * 400 MB buffer is the difference between finishing and running out of memory.
  */
-export async function openWithPdfjs(bytes: Uint8Array): Promise<PDFDocumentProxy> {
+export async function openWithPdfjs(
+  bytes: Uint8Array,
+  opts: { handOver?: boolean } = {},
+): Promise<PDFDocumentProxy> {
   const lib = await pdfjs()
   const base = import.meta.env.BASE_URL
   return lib.getDocument({
-    data: bytes.slice(),
+    data: opts.handOver ? bytes : bytes.slice(),
     isEvalSupported: false,
     // Without these, PDFs that reference the base-14 fonts without embedding
     // them, or that use CJK encodings, render with missing glyphs.

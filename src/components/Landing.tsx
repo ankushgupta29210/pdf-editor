@@ -4,6 +4,7 @@ import { Icon } from './Icon'
 type Props = {
   onChooseFiles: () => void
   onImagesToPdf: () => void
+  onShrinkBigPdf: () => void
 }
 
 const base = import.meta.env.BASE_URL
@@ -54,8 +55,10 @@ const FEATURES: Array<{ icon: ReactElement; title: string; body: string }> = [
         <circle cx="12" cy="12" r="3" />
       </svg>
     ),
-    title: 'Compress',
-    body: 'Presets from “keep text sharp” down to aggressive, so the file fits where it needs to.',
+    title: 'Compress to a size',
+    body:
+      'Name a size — 25 MB, say — and a 300 MB scan is rebuilt to fit it. Presets too, if you would ' +
+      'rather choose the quality yourself.',
   },
   {
     icon: (
@@ -82,7 +85,7 @@ const FEATURES: Array<{ icon: ReactElement; title: string; body: string }> = [
 const TICKET: Array<[string, string]> = [
   ['Merge two PDFs', '$4.99'],
   ['Export without a watermark', '$9.99'],
-  ['No file-size limit', '$12.99/mo'],
+  ['Compress a 300 MB scan to 25 MB', '$12.99/mo'],
   ['Make a scan searchable (OCR)', '$19.99/mo'],
 ]
 
@@ -93,7 +96,7 @@ const PRIVACY: Array<[string, string]> = [
 ]
 
 /** The page shown before any file is opened: hero, pricing ticket, features, privacy. */
-export function Landing({ onChooseFiles, onImagesToPdf }: Props) {
+export function Landing({ onChooseFiles, onImagesToPdf, onShrinkBigPdf }: Props) {
   return (
     <main className="landing">
       <header className="landing-top">
@@ -129,7 +132,14 @@ export function Landing({ onChooseFiles, onImagesToPdf }: Props) {
             <button className="btn btn-ghost" onClick={onImagesToPdf}>
               <Icon name="image" /> Images to PDF
             </button>
+            <button className="btn btn-ghost" onClick={onShrinkBigPdf}>
+              <Icon name="compress" /> Shrink a big PDF
+            </button>
           </div>
+          <p className="drop-hint">
+            Got a 300–400 MB scan that has to be under 25 MB? Use <em>Shrink a big PDF</em> — on a
+            laptop or desktop, not a phone.
+          </p>
           <div className="trust-line">
             <span><Check />Processed on this device</span>
             <span><Check />No sign-up</span>
