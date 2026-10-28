@@ -281,10 +281,34 @@ select {
   font-size: 11px;
 }
 
+/* The pages panel is narrow (~200px): the title and its close button stay on
+   the first row and the page actions get a full-width row of their own, so
+   none of them can spill under the stage (or out of the phone drawer). */
+.pages-panel {
+  overflow: hidden;
+}
+
+.pages-panel .panel-head {
+  flex-wrap: wrap;
+}
+
 .row-actions {
   margin-left: auto;
   display: flex;
   gap: 1px;
+}
+
+.pages-panel .row-actions {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  margin-left: 0;
+  justify-content: space-between;
+}
+
+/* Seven 24px buttons fit one row of the 200px panel; on touch screens the
+   larger targets simply wrap onto a second row. */
+.pages-panel .row-actions button {
+  padding: 3px;
 }
 
 .row-actions button {
@@ -1044,11 +1068,11 @@ select {
   overflow: hidden;
 }
 
+/* Size and position come from the margin, set inline (ImagesDialog). */
 .preview-page img {
   position: absolute;
-  width: auto;
-  height: auto;
   max-width: none;
+  display: block;
 }
 
 /* ---------- responsive ---------- */
@@ -1225,6 +1249,21 @@ select {
 @media (max-width: 620px) {
   .topbar .group:has(.zoom-label) {
     display: none;
+  }
+
+  /* Icon-only top-bar buttons so Download fits on screen without scrolling. */
+  .topbar {
+    gap: 4px;
+  }
+
+  .topbar .btn-label,
+  .topbar .brand,
+  .topbar .hide-phone {
+    display: none;
+  }
+
+  .topbar .group button {
+    padding: 6px 7px;
   }
 }
 

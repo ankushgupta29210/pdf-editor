@@ -98,9 +98,9 @@ export function OcrDialog({ onClose, filename }: { onClose: () => void; filename
                 Scans and photographed pages don't carry real text — you can't search or select
                 anything on them. This reads every page with on-device OCR and adds an invisible,
                 positioned text layer behind it, so the page looks exactly the same but becomes
-                searchable and selectable. The first time you run this, your browser fetches a
-                small language model (a few MB, cached afterwards) — the pages themselves are
-                never uploaded anywhere.
+                searchable and selectable. The first time you run this, your browser loads a
+                small language model (about 3 MB, from this site, cached afterwards) — the
+                pages themselves are never uploaded anywhere.
               </p>
 
               {OCR_LANGUAGES.length > 1 && (
@@ -126,15 +126,19 @@ export function OcrDialog({ onClose, filename }: { onClose: () => void; filename
               {phase === 'working' && progress && (
                 <>
                   <p className="hint">
-                    Reading page {Math.min(progress.page, progress.totalPages)} of{' '}
-                    {progress.totalPages}…
+                    {progress.page === 0
+                      ? 'Loading the OCR model…'
+                      : `Reading page ${Math.min(progress.page, progress.totalPages)} of ${progress.totalPages}…`}
                   </p>
                   <div className="progress">
                     <div
                       style={{
-                        width: `${Math.round(
-                          (((progress.page - 1) + progress.fraction) / Math.max(progress.totalPages, 1)) *
-                            100,
+                        width: `${Math.max(
+                          0,
+                          Math.round(
+                            ((progress.page - 1 + progress.fraction) / Math.max(progress.totalPages, 1)) *
+                              100,
+                          ),
                         )}%`,
                       }}
                     />

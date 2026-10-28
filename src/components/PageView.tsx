@@ -166,7 +166,18 @@ export function PageView() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const surfaceRef = useRef<HTMLDivElement>(null)
-  const [draft, setDraft] = useState<Annotation | null>(null)
+  const [draft, setDraftState] = useState<Annotation | null>(null)
+  /**
+   * Latest draft, updated synchronously. Pointer events can arrive faster than
+   * React re-renders, so on pointerup the `draft` captured by the last render
+   * may be missing the final moves (shapes came out short of where the pointer
+   * was released). Reading the ref instead always sees every move.
+   */
+  const draftRef = useRef<Annotation | null>(null)
+  const setDraft = useCallback((next: Annotation | null) => {
+    draftRef.current = next
+    setDraftState(next)
+  }, [])
   const [editingId, setEditingId] = useState<string | null>(null)
   /** anchor corner of the box being dragged out, kept out of state for stability */
   const anchorRef = useRef<{ x: number; y: number } | null>(null)
@@ -275,32 +286,39 @@ export function PageView() {
     }
   }
 
-  function moveDraw(e: React.PointerEvent) {
-    if (!draft) return
-    const p = toBase(e.clientX, e.clientY)
-    setDraft((d) => {
-      if (!d) return d
-      if (d.kind === 'ink') {
-        const strokes = [...d.strokes]
-        // While drawing, ink points are absolute; they are normalised on commit.
-        strokes[strokes.length - 1] = [...strokes[strokes.length - 1], [p.x, p.y]]
-        return { ...d, strokes }
-      }
-      const anchor = anchorRef.current
-      if (!anchor) return d
-      if (d.kind === 'line') return { ...d, w: p.x - anchor.x, h: p.y - anchor.y }
-      return {
-        ...d,
-        x: Math.min(anchor.x, p.x),
-        y: Math.min(anchor.y, p.y),
-        w: Math.abs(p.x - anchor.x),
-        h: Math.abs(p.y - anchor.y),
-      }
-    })
+  function extendDraft(d: Annotation, p: { x: number; y: number }): Annotation {
+    if (d.kind === 'ink') {
+      const strokes = [...d.strokes]
+      const last = strokes[strokes.length - 1]
+      const prev = last[last.length - 1]
+      if (prev && prev[0] === p.x && prev[1] === p.y) return d
+      // While drawing, ink points are absolute; they are normalised on commit.
+      strokes[strokes.length - 1] = [...last, [p.x, p.y]]
+      return { ...d, strokes }
+    }
+    const anchor = anchorRef.current
+    if (!anchor) return d
+    if (d.kind === 'line') return { ...d, w: p.x - anchor.x, h: p.y - anchor.y }
+    return {
+      ...d,
+      x: Math.min(anchor.x, p.x),
+      y: Math.min(anchor.y, p.y),
+      w: Math.abs(p.x - anchor.x),
+      h: Math.abs(p.y - anchor.y),
+    }
   }
 
-  function endDraw() {
-    if (!draft) return
+  function moveDraw(e: React.PointerEvent) {
+    const d = draftRef.current
+    if (!d) return
+    setDraft(extendDraft(d, toBase(e.clientX, e.clientY)))
+  }
+
+  function endDraw(e: React.PointerEvent) {
+    const current = draftRef.current
+    if (!current) return
+    // Include the release point itself, in case no move event reported it.
+    const draft = extendDraft(current, toBase(e.clientX, e.clientY))
     setDraft(null)
     if (draft.kind === 'ink') {
       const pts = draft.strokes.flat()

@@ -9,8 +9,8 @@ import react from '@vitejs/plugin-react'
  *
  * Notes on the directives:
  * - 'wasm-unsafe-eval' lets the Tesseract OCR core compile its WebAssembly.
- * - tessdata.projectnaptha.com is where tesseract.js fetches trained language
- *   models on first use (see src/lib/ocr.ts). No document content goes there.
+ * - connect-src has no third-party hosts: the OCR language model is
+ *   self-hosted under /tesseract/lang (see scripts/copy-tesseract-assets.mjs).
  * - blob: in worker-src/child-src covers pdf.js's fallback worker.
  * - 'unsafe-inline' in style-src is needed for React's inline style attributes.
  * - frame-ancestors is not honoured in a <meta> policy, so it is omitted.
@@ -23,7 +23,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",
-  "connect-src 'self' blob: data: https://tessdata.projectnaptha.com",
+  "connect-src 'self' blob: data:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'none'",

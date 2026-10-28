@@ -2,8 +2,8 @@
  * Tesseract.js needs its worker script and the WASM "core" build at runtime.
  * They are copied out of node_modules (like pdf.js's assets) so OCR runs
  * fully offline from this app's own origin instead of fetching code from a
- * third-party CDN. The recognition *language data* (a trained model, not
- * app code) is not copied here — see src/lib/ocr.ts for that trade-off.
+ * third-party CDN. The recognition language data (trained models) is copied
+ * too, into public/tesseract/lang, so OCR never reaches out to a CDN.
  *
  * Safe to run before `npm install tesseract.js` has happened: it warns and
  * skips instead of failing the dev/build script, so OCR simply stays
@@ -39,4 +39,22 @@ if (existsSync(coreDir)) {
   console.log(`copied Tesseract.js worker + ${files.length} core files into public/tesseract`)
 } else {
   console.warn('[tesseract-assets] tesseract.js-core not found — core WASM files were not copied.')
+}
+
+// Trained language models. Without these, tesseract.js falls back to
+// downloading them from cdn.jsdelivr.net, which the production CSP blocks (and
+// which would break the "nothing leaves this site" promise). The "best_int"
+// variant is the one tesseract.js picks for the default LSTM-only engine.
+const LANGS = ['eng']
+for (const lang of LANGS) {
+  const src = join(root, 'node_modules', '@tesseract.js-data', lang, '4.0.0_best_int', `${lang}.traineddata.gz`)
+  if (existsSync(src)) {
+    await mkdir(join(to, 'lang'), { recursive: true })
+    await cp(src, join(to, 'lang', `${lang}.traineddata.gz`))
+    console.log(`copied ${lang}.traineddata.gz into public/tesseract/lang`)
+  } else {
+    console.warn(
+      `[tesseract-assets] @tesseract.js-data/${lang} is not installed — OCR in ${lang} will fail until it is (npm install).`,
+    )
+  }
 }

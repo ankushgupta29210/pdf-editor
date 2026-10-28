@@ -46,6 +46,8 @@ export function ShrinkDialog({ file, onClose }: { file: File; onClose: () => voi
   const [progress, setProgress] = useState<ShrinkProgress | null>(null)
   const [result, setResult] = useState<Uint8Array | null>(null)
   const [missed, setMissed] = useState(false)
+  /** True when the rebuilt file came out no smaller than the original, so the original is kept. */
+  const [noGain, setNoGain] = useState(false)
 
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
@@ -64,6 +66,7 @@ export function ShrinkDialog({ file, onClose }: { file: File; onClose: () => voi
     setPhase('working')
     setResult(null)
     setMissed(false)
+    setNoGain(false)
     setProgress({ phase: 'reading', done: 0, total: 0, bytes: 0, dpi: 0 })
     try {
       const { shrinkToTarget } = await import('../lib/shrink')
@@ -74,8 +77,16 @@ export function ShrinkDialog({ file, onClose }: { file: File; onClose: () => voi
         signal: controller.signal,
         onProgress: setProgress,
       })
-      setResult(out.bytes)
-      setMissed(out.missedTarget)
+      if (out.bytes.byteLength >= file.size) {
+        // Never hand back a "compressed" file that is bigger than the original.
+        setResult(new Uint8Array(await file.arrayBuffer()))
+        setNoGain(true)
+        setMissed(false)
+      } else {
+        setResult(out.bytes)
+        setMissed(out.missedTarget)
+      }
+      setProgress(null)
       setPhase('done')
     } catch (err) {
       if (controller.signal.aborted) {
@@ -124,11 +135,13 @@ export function ShrinkDialog({ file, onClose }: { file: File; onClose: () => voi
             <Icon name="line" size={20} />
             <div>
               <span className="k">{result ? 'After' : 'Now'}</span>
-              <strong className={result ? 'good' : ''}>
+              <strong className={result && !noGain ? 'good' : ''}>
                 {formatBytes(result ? result.byteLength : file.size)}
               </strong>
             </div>
-            {saved !== null && <div className="saved">−{Math.round(saved * 100)}%</div>}
+            {saved !== null && saved > 0 && (
+              <div className="saved">−{Math.round(saved * 100)}%</div>
+            )}
           </div>
 
           {phase === 'blocked' || phase === 'error' ? (
@@ -252,6 +265,14 @@ export function ShrinkDialog({ file, onClose }: { file: File; onClose: () => voi
                 </div>
               )}
 
+              {phase === 'done' && noGain && (
+                <p className="hint warn-text">
+                  This file is already smaller than a rebuilt copy would be, so the original is
+                  kept unchanged
+                  {file.size <= targetMb * MB ? ` — it is already under ${targetMb} MB` : ''}.
+                </p>
+              )}
+
               {phase === 'done' && missed && (
                 <p className="hint warn-text">
                   This is as small as it goes — {result && formatBytes(result.byteLength)} — without
@@ -282,7 +303,10 @@ export function ShrinkDialog({ file, onClose }: { file: File; onClose: () => voi
             onClick={async () => {
               if (!result) return
               const { downloadBytes } = await import('../lib/export')
-              downloadBytes(result, file.name.replace(/\.pdf$/i, '') + '-compressed.pdf')
+              downloadBytes(
+                result,
+                noGain ? file.name : file.name.replace(/\.pdf$/i, '') + '-compressed.pdf',
+              )
             }}
           >
             <Icon name="download" /> Download

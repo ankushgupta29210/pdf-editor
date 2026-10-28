@@ -28,9 +28,15 @@ export function rotationPlacement(rotateCw: number, w: number, h: number) {
   }
 }
 
-/** CSS transform that rotates the annotation layer along with the page image. */
+/**
+ * CSS transform that rotates the annotation layer along with the page image.
+ * Returns an empty string (not `none`) for an unrotated page: the result is
+ * appended to `scale(...)`, and `scale(1) none` is invalid CSS that the browser
+ * silently drops — which left the previous page's rotation (and the old zoom)
+ * stuck on the view.
+ */
 export function layerTransform(rotateCw: number, baseW: number, baseH: number): string {
-  switch (rotateCw % 360) {
+  switch (((rotateCw % 360) + 360) % 360) {
     case 90:
       return `translate(${baseH}px, 0px) rotate(90deg)`
     case 180:
@@ -38,7 +44,7 @@ export function layerTransform(rotateCw: number, baseW: number, baseH: number): 
     case 270:
       return `translate(0px, ${baseW}px) rotate(270deg)`
     default:
-      return 'none'
+      return ''
   }
 }
 

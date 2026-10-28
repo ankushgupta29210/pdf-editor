@@ -38,13 +38,22 @@ export function ImagesDialog({ files, onCancel, onConfirm }: Props) {
     img.src = first.url
   }, [first])
 
-  const pageRatio = useMemo(() => {
-    if (opts.pageSize === 'fit') return ratio
+  /** Preview page shape, plus its size in points (null for "fit to image"). */
+  const pagePreview = useMemo(() => {
+    if (opts.pageSize === 'fit') return { ratio, wPt: null as number | null, hPt: null as number | null }
     const s = PAGE_SIZES[opts.pageSize]
     const landscape =
       opts.orientation === 'landscape' || (opts.orientation === 'auto' && ratio > 1)
-    return landscape ? s.h / s.w : s.w / s.h
+    const wPt = landscape ? Math.max(s.w, s.h) : Math.min(s.w, s.h)
+    const hPt = landscape ? Math.min(s.w, s.h) : Math.max(s.w, s.h)
+    return { ratio: wPt / hPt, wPt, hPt }
   }, [opts.pageSize, opts.orientation, ratio])
+  const pageRatio = pagePreview.ratio
+  // Margin as a share of each page edge, so the preview matches the export.
+  // For "fit to image" pages the point size depends on the image, so this is
+  // an approximation.
+  const marginX = pagePreview.wPt ? (opts.margin / pagePreview.wPt) * 100 : opts.margin / 5
+  const marginY = pagePreview.hPt ? (opts.margin / pagePreview.hPt) * 100 : opts.margin / 5
 
   const totalBytes = chosen.reduce((n, f) => n + f.size, 0)
   const set = (patch: Partial<ImagePageOptions>) => setOpts({ ...opts, ...patch })
@@ -151,7 +160,10 @@ export function ImagesDialog({ files, onCancel, onConfirm }: Props) {
                     src={first.url}
                     alt=""
                     style={{
-                      inset: `${opts.margin / 5}%`,
+                      left: `${marginX}%`,
+                      top: `${marginY}%`,
+                      width: `${Math.max(0, 100 - 2 * marginX)}%`,
+                      height: `${Math.max(0, 100 - 2 * marginY)}%`,
                       objectFit: opts.pageSize === 'fit' ? 'contain' : opts.fit,
                     }}
                   />

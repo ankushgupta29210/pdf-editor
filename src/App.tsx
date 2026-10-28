@@ -87,7 +87,8 @@ export default function App() {
 
   const filename = useMemo(() => {
     const first = pages[0] && sources.get(pages[0].srcId)?.name
-    return first ? first.replace(/\.pdf$/i, '') + '-edited.pdf' : 'document.pdf'
+    // Sources can be images too ("photo.png"), so strip whatever extension it has.
+    return first ? first.replace(/\.[a-z0-9]{1,5}$/i, '') + '-edited.pdf' : 'document.pdf'
   }, [pages, sources])
 
   const targets = selectedPageIds.length
@@ -326,8 +327,8 @@ export default function App() {
           </div>
 
           <div className="group">
-            <button className="primary" onClick={() => fileInput.current?.click()}>
-              <Icon name="plus" /> {pages.length ? 'Add files' : 'Open PDFs'}
+            <button className="primary" onClick={() => fileInput.current?.click()} title="Add files">
+              <Icon name="plus" /> <span className="btn-label">{pages.length ? 'Add files' : 'Open PDFs'}</span>
             </button>
           </div>
 
@@ -375,24 +376,29 @@ export default function App() {
           <div className="spacer" />
 
           {pages.length > 0 && (
-            <div className="doc-stats" title="Source bytes currently loaded">
+            <div className="doc-stats" title="Combined size of the files you opened, before edits">
               {pages.length} page{pages.length > 1 ? 's' : ''} · {sources.size} file
-              {sources.size > 1 ? 's' : ''} · {formatBytes(totalSize)}
+              {sources.size > 1 ? 's' : ''} · {formatBytes(totalSize)} opened
             </div>
           )}
 
           <div className="group">
             <button onClick={() => setShowOcr(true)} disabled={!pages.length} title="Make scanned pages searchable">
-              <Icon name="ocr" /> Make searchable
+              <Icon name="ocr" /> <span className="btn-label">Make searchable</span>
             </button>
-            <button onClick={() => setShowCompress(true)} disabled={!pages.length}>
-              <Icon name="compress" /> Compress
+            <button onClick={() => setShowCompress(true)} disabled={!pages.length} title="Compress">
+              <Icon name="compress" /> <span className="btn-label">Compress</span>
             </button>
-            <button onClick={() => shrinkInput.current?.click()} title="Shrink a file too big to open here">
-              <Icon name="file" /> Large file
+            {/* Hidden on phones: a phone browser can't finish a large-file shrink anyway. */}
+            <button
+              className="hide-phone"
+              onClick={() => shrinkInput.current?.click()}
+              title="Shrink a file too big to open here"
+            >
+              <Icon name="file" /> <span className="btn-label">Large file</span>
             </button>
-            <button className="primary" onClick={download} disabled={!pages.length}>
-              <Icon name="download" /> Download
+            <button className="primary" onClick={download} disabled={!pages.length} title="Download">
+              <Icon name="download" /> <span className="btn-label">Download</span>
             </button>
           </div>
         </header>

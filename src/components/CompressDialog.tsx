@@ -21,6 +21,8 @@ export function CompressDialog({ onClose, filename }: { onClose: () => void; fil
   )
   const [original, setOriginal] = useState<Uint8Array | null>(null)
   const [result, setResult] = useState<Uint8Array | null>(null)
+  /** True when compressing would have made the file bigger, so the original is kept. */
+  const [noGain, setNoGain] = useState(false)
 
   const cancelled = useRef(false)
   useEffect(() => {
@@ -69,13 +71,18 @@ export function CompressDialog({ onClose, filename }: { onClose: () => void; fil
     setPhase('working')
     setProgress(0)
     setResult(null)
+    setNoGain(false)
     try {
       const { compressPdf } = await import('../lib/compress')
       const out = await compressPdf(original, settings, (done, total) =>
         setProgress(total ? done / total : 0),
       )
       if (cancelled.current) return
-      setResult(out)
+      // Rasterising an already-lean, text-based PDF can easily make it larger.
+      // Never hand back a "compressed" file that is bigger than what we started with.
+      const bigger = out.byteLength >= original.byteLength
+      setNoGain(bigger)
+      setResult(bigger ? original : out)
       setPhase('done')
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Compression failed.')
@@ -107,20 +114,27 @@ export function CompressDialog({ onClose, filename }: { onClose: () => void; fil
             <>
               <div className="size-row">
                 <div>
-                  <span className="k">Current</span>
+                  <span className="k">With your edits</span>
                   <strong>{original ? formatBytes(original.byteLength) : '—'}</strong>
                 </div>
                 <Icon name="line" size={20} />
                 <div>
                   <span className="k">After</span>
-                  <strong className={result ? 'good' : ''}>
+                  <strong className={result && !noGain ? 'good' : ''}>
                     {result ? formatBytes(result.byteLength) : '—'}
                   </strong>
                 </div>
-                {saved !== null && (
+                {saved !== null && saved > 0 && (
                   <div className="saved">−{Math.round(saved * 100)}%</div>
                 )}
               </div>
+
+              {phase === 'done' && noGain && (
+                <p className="hint warn-text">
+                  This file is already compact — these settings would have made it bigger, so the
+                  original is kept. Try “Strong”, greyscale, or a lower resolution.
+                </p>
+              )}
 
               <div className="presets">
                 {PRESETS.map((p) => (
@@ -209,7 +223,10 @@ export function CompressDialog({ onClose, filename }: { onClose: () => void; fil
             onClick={async () => {
               if (!result) return
               const { downloadBytes } = await import('../lib/export')
-              downloadBytes(result, filename.replace(/\.pdf$/i, '') + '-compressed.pdf')
+              downloadBytes(
+                result,
+                noGain ? filename : filename.replace(/\.pdf$/i, '') + '-compressed.pdf',
+              )
             }}
           >
             <Icon name="download" /> Download

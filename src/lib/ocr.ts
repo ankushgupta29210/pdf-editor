@@ -49,11 +49,9 @@ function flattenWords(page: Tesseract.Page): Tesseract.Word[] {
  * Adds an invisible, positioned text layer to every page of `bytes` using
  * OCR, so pages that started as flat scans become selectable and searchable
  * — without changing how the page looks. The recognition itself runs
- * entirely in the browser (the worker and WASM core are served from this
- * app, not a third party); the one exception is the trained language model,
- * which the library fetches from its own CDN the first time a language is
- * used and then caches, since bundling every language's model in the app
- * would be tens of megabytes each. No page content is ever sent anywhere.
+ * entirely in the browser: the worker, the WASM core and the trained language
+ * model are all served from this app, not a third party (the model is cached
+ * by the browser after the first run). No page content is ever sent anywhere.
  */
 export async function makeSearchable(
   bytes: Uint8Array,
@@ -68,10 +66,34 @@ export async function makeSearchable(
   const pages = doc.getPages()
   const total = pages.length
 
-  const worker = await Tesseract.createWorker(lang, undefined, {
-    workerPath: `${base}tesseract/worker.min.js`,
-    corePath: `${base}tesseract/`,
+  // tesseract.js swallows a failed language load inside createWorker() and
+  // reports it only through `errorHandler` (or an uncaught throw), so the
+  // promise would otherwise never settle and the UI would sit on "page 0"
+  // forever. Route that error into a rejection we can show to the user.
+  let failLoad: (reason: Error) => void = () => undefined
+  const loadFailed = new Promise<never>((_, reject) => {
+    failLoad = reject
   })
+  // errorHandler can also fire later for a failed recognize() (which rejects
+  // on its own); don't let this side promise surface as an unhandled rejection.
+  loadFailed.catch(() => undefined)
+  const worker = await Promise.race([
+    Tesseract.createWorker(lang, undefined, {
+      workerPath: `${base}tesseract/worker.min.js`,
+      corePath: `${base}tesseract/`,
+      // Self-hosted model (copied by scripts/copy-tesseract-assets.mjs), so
+      // nothing is fetched from a third-party CDN.
+      langPath: `${base}tesseract/lang`,
+      errorHandler: (err: unknown) =>
+        failLoad(
+          new Error(
+            `Could not load the ${lang} OCR model (${String(err).replace(/^Error:\s*/, '')}). ` +
+              'Check your connection and try again.',
+          ),
+        ),
+    }),
+    loadFailed,
+  ])
 
   try {
     const canvas = document.createElement('canvas')
