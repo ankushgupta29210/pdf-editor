@@ -8,6 +8,8 @@ export interface SourceDoc {
   pageCount: number
   /** false when pdf-lib cannot parse this file, so its pages export as images */
   vectorOk: boolean
+  /** true for documents the app made itself (e.g. an inserted blank page), not a file the user opened */
+  generated?: boolean
 }
 
 /** One page in the working document. Sizes are display points (post-rotation). */

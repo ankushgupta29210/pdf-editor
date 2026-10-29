@@ -86,9 +86,12 @@ export function PageList() {
             }}
             onDrop={(e) => {
               e.preventDefault()
-              if (dragging.current.length && dropIndex !== null) {
-                movePages(dragging.current, dropIndex)
-              }
+              // Work the slot out from the drop event itself: a quick drag can
+              // drop before the last dragover's state update has rendered, and
+              // then `dropIndex` would still be null and the drop ignored.
+              const box = e.currentTarget.getBoundingClientRect()
+              const slot = e.clientY > box.top + box.height / 2 ? i + 1 : i
+              if (dragging.current.length) movePages(dragging.current, slot)
               dragging.current = []
               setDropIndex(null)
             }}

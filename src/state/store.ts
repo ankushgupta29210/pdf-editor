@@ -395,6 +395,7 @@ export const useStore = create<State>((set, get) => ({
         proxy,
         pageCount: 1,
         vectorOk: true,
+        generated: true,
       }
       const page: PageItem = {
         id: uid(),
@@ -413,6 +414,10 @@ export const useStore = create<State>((set, get) => ({
           sources: next,
           pages: [...s.pages.slice(0, at), page, ...s.pages.slice(at)],
           currentPageId: page.id,
+          // Select the new page so Delete / Rotate act on what is on screen,
+          // not on whatever was selected before it was inserted.
+          selectedPageIds: [page.id],
+          selectedAnnId: null,
         }
       })
     })()

@@ -265,6 +265,13 @@ export function ShrinkDialog({ file, onClose }: { file: File; onClose: () => voi
                 </div>
               )}
 
+              {phase === 'ready' && !result && file.size <= targetMb * MB && (
+                <p className="hint warn-text">
+                  {file.name} is already under {targetMb} MB ({formatBytes(file.size)}), so it
+                  probably can't get much smaller. Pick a lower target, or compress anyway to try.
+                </p>
+              )}
+
               {phase === 'done' && noGain && (
                 <p className="hint warn-text">
                   This file is already smaller than a rebuilt copy would be, so the original is

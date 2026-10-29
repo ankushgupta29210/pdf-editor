@@ -91,11 +91,15 @@ export default function App() {
     return first ? first.replace(/\.[a-z0-9]{1,5}$/i, '') + '-edited.pdf' : 'document.pdf'
   }, [pages, sources])
 
-  const targets = selectedPageIds.length
-    ? selectedPageIds
-    : currentPageId
-      ? [currentPageId]
-      : []
+  // Page actions apply to the multi-selection only while the page on screen is
+  // part of it. Otherwise a selection made earlier (then left behind by moving
+  // to another page) would be what Delete or Rotate silently acts on.
+  const targets =
+    currentPageId && selectedPageIds.includes(currentPageId)
+      ? selectedPageIds
+      : currentPageId
+        ? [currentPageId]
+        : []
 
   const currentIndex = pages.findIndex((p) => p.id === currentPageId)
 
@@ -216,9 +220,9 @@ export default function App() {
         if (store.selectedAnnId) {
           e.preventDefault()
           store.deleteAnnotation(store.selectedAnnId)
-        } else if (selectedPageIds.length) {
+        } else if (targets.length) {
           e.preventDefault()
-          store.deletePages(selectedPageIds)
+          store.deletePages(targets)
         }
         return
       }
@@ -248,10 +252,48 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const totalSize = useMemo(
-    () => [...sources.values()].reduce((n, s) => n + s.bytes.byteLength, 0),
-    [sources],
-  )
+  /** Files the user actually opened that still have pages in the document. */
+  const openedFiles = useMemo(() => {
+    const used = new Set(pages.map((p) => p.srcId))
+    return [...sources.values()].filter((s) => !s.generated && used.has(s.id))
+  }, [pages, sources])
+  const totalSize = openedFiles.reduce((n, s) => n + s.bytes.byteLength, 0)
+
+  // Open new documents at a size that fits the window (never above 100%), so a
+  // landscape page on a laptop or any page on a phone isn't cut off. The zoom
+  // buttons are hidden on phones, so this is their only way to see a full page.
+  const hadPages = useRef(false)
+  useEffect(() => {
+    if (!pages.length) {
+      hadPages.current = false
+      return
+    }
+    if (hadPages.current) return
+    hadPages.current = true
+    const page = pages.find((p) => p.id === currentPageId) ?? pages[0]
+    requestAnimationFrame(() => {
+      const el = stageRef.current
+      if (!el) return
+      const d = displaySize(page)
+      store.setZoom(Math.min(1, (el.clientWidth - 40) / d.w))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages.length])
+
+  // Ctrl/⌘ + wheel (and trackpad pinch, which browsers report the same way)
+  // zooms the page instead of the whole browser window.
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    function onWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const { zoom: z, setZoom } = useStore.getState()
+      setZoom(z * Math.exp(-e.deltaY * 0.0025))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [pages.length > 0])
 
   return (
     <div
@@ -377,8 +419,8 @@ export default function App() {
 
           {pages.length > 0 && (
             <div className="doc-stats" title="Combined size of the files you opened, before edits">
-              {pages.length} page{pages.length > 1 ? 's' : ''} · {sources.size} file
-              {sources.size > 1 ? 's' : ''} · {formatBytes(totalSize)} opened
+              {pages.length} page{pages.length > 1 ? 's' : ''} · {openedFiles.length} file
+              {openedFiles.length === 1 ? '' : 's'} · {formatBytes(totalSize)} opened
             </div>
           )}
 
