@@ -49,5 +49,10 @@ export default defineConfig({
   // (https://<user>.github.io/<repo>/) before DNS is pointed.
   base: './',
   plugins: [react(), cspMeta()],
+  build: {
+    // Vite inlines small assets as data: URLs, but the CSP only allows fonts
+    // from 'self' — so font files must always be emitted as real files.
+    assetsInlineLimit: (file) => (/\.(woff2?|ttf|otf)$/i.test(file) ? false : undefined),
+  },
   server: { port: 5173 },
 })

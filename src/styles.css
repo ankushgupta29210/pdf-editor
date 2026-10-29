@@ -302,7 +302,8 @@ select {
   flex: 1 0 100%;
   flex-wrap: wrap;
   margin-left: 0;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 1px;
 }
 
 /* Seven 24px buttons fit one row of the 200px panel; on touch screens the
@@ -328,6 +329,11 @@ select {
 
 .thumb {
   position: relative;
+  /* A tap or long-press on a phone shouldn't select the thumbnail image. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   border: 2px solid transparent;
   border-radius: var(--radius);
   padding: 4px;
@@ -465,6 +471,131 @@ select {
 .ann-layer {
   position: absolute;
   inset: 0;
+  /* Each .ann opts back in; the layer itself must not swallow clicks meant
+     for the canvas or the form fields underneath. */
+  pointer-events: none;
+}
+
+/* ---------- fillable form fields ---------- */
+
+.form-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Only the fields themselves take clicks, and only with the Select tool —
+   other tools draw straight over them. */
+.form-layer .form-field {
+  pointer-events: none;
+}
+
+.form-layer.live .form-field {
+  pointer-events: auto;
+}
+
+.form-field {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 2px;
+  border: 1px solid rgba(21, 112, 239, 0.35);
+  border-radius: 1px;
+  background: rgba(219, 234, 254, 0.55);
+  color: #111;
+  font-family: Helvetica, Arial, 'Liberation Sans', sans-serif;
+  line-height: 1.15;
+  outline: none;
+}
+
+.form-field:focus {
+  border-color: #1570ef;
+  background: rgba(219, 234, 254, 0.9);
+}
+
+textarea.form-field {
+  resize: none;
+  padding-top: 1px;
+}
+
+select.form-field {
+  appearance: auto;
+  color-scheme: light;
+}
+
+.form-check {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.form-check input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.form-check span {
+  visibility: hidden;
+  color: #111;
+  font-size: 9px;
+  line-height: 1;
+  transform: scale(1.2);
+}
+
+.form-check.on span {
+  visibility: visible;
+}
+
+.form-check.radio {
+  border-radius: 50%;
+}
+
+/* ---------- edit existing text ---------- */
+
+.text-run {
+  position: absolute;
+  pointer-events: auto;
+  padding: 0;
+  border: 1px dashed rgba(21, 112, 239, 0.55);
+  border-radius: 2px;
+  background: rgba(21, 112, 239, 0.06);
+  cursor: text;
+}
+
+.text-run:hover,
+.text-run:focus-visible {
+  border-style: solid;
+  background: rgba(21, 112, 239, 0.16);
+}
+
+/* ---------- page numbers / watermark preview ---------- */
+
+.stamp-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.stamp-watermark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  white-space: nowrap;
+  font-family: Helvetica, Arial, 'Liberation Sans', sans-serif;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.stamp-number {
+  position: absolute;
+  white-space: nowrap;
+  font-family: Helvetica, Arial, 'Liberation Sans', sans-serif;
+  line-height: 1;
 }
 
 .ann {
@@ -1917,5 +2048,261 @@ select {
 @media (max-width: 560px) {
   .landing-links {
     display: none;
+  }
+}
+
+/* ---------- page move buttons (touch-friendly reordering) ---------- */
+
+.thumb-move {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 2;
+}
+
+.thumb-move button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(15, 17, 21, 0.82);
+  border: 1px solid var(--line);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.thumb-move button:disabled {
+  opacity: 0.35;
+}
+
+@media (pointer: coarse) {
+  .thumb-move button {
+    width: 38px;
+    height: 38px;
+  }
+}
+
+/* ---------- tools menu ---------- */
+
+.tools-menu {
+  position: relative;
+}
+
+.menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 61;
+  min-width: 230px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.75);
+}
+
+.menu button {
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.menu-badge {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-soft-border);
+}
+
+.compact-menu-only {
+  display: none !important;
+}
+
+/* The phone top bar scrolls sideways, which would clip a dropdown hanging off
+   it — so there the menu is pinned to the viewport instead. */
+@media (max-width: 860px) {
+  .menu {
+    position: fixed;
+    top: 52px;
+    right: 8px;
+    left: auto;
+    max-width: calc(100vw - 16px);
+  }
+}
+
+@media (max-width: 620px) {
+  .compact-menu-only {
+    display: flex !important;
+  }
+}
+
+/* ---------- watermark preview ---------- */
+
+.wm-preview {
+  height: 110px;
+  margin: 4px 0 12px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px #0002;
+}
+
+.wm-preview span {
+  font-family: Helvetica, Arial, 'Liberation Sans', sans-serif;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---------- signature dialog ---------- */
+
+.sig-modal .modal-body > .seg {
+  margin-bottom: 12px;
+}
+
+.ink-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 2px;
+}
+
+.sig-pad-wrap {
+  position: relative;
+  height: 170px;
+  margin: 4px 0 8px;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px #0003;
+  overflow: hidden;
+}
+
+.sig-pad {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+  z-index: 1;
+}
+
+.sig-line {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 38px;
+  border-bottom: 1.5px dashed #98a2b3;
+}
+
+.sig-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  text-align: center;
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+.sig-fonts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.sig-font {
+  height: 70px;
+  justify-content: center;
+  background: #fff;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sig-font span {
+  font-size: 30px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.sig-font.on,
+.sig-font.on:hover {
+  background: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.sig-font:hover:not(.on) {
+  background: #f2f4f7;
+}
+
+.sig-saved {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.sig-saved-item {
+  position: relative;
+}
+
+.sig-saved-pick {
+  width: 100%;
+  height: 80px;
+  justify-content: center;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.sig-saved-pick img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.sig-saved-item .icon {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 4px;
+  background: #fffd;
+  color: #b42318;
+  border-radius: 6px;
+}
+
+button.small {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+@media (max-width: 620px) {
+  .sig-fonts {
+    grid-template-columns: 1fr;
   }
 }

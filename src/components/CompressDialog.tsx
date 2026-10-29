@@ -11,6 +11,8 @@ export function CompressDialog({ onClose, filename }: { onClose: () => void; fil
   const sources = useStore((s) => s.sources)
   const annotations = useStore((s) => s.annotations)
   const images = useStore((s) => s.images)
+  const stamps = useStore((s) => s.stamps)
+  const formValues = useStore((s) => s.formValues)
 
   const [phase, setPhase] = useState<Phase>('preparing')
   const [message, setMessage] = useState('')
@@ -43,7 +45,7 @@ export function CompressDialog({ onClose, filename }: { onClose: () => void; fil
     ;(async () => {
       try {
         const { buildPdf } = await import('../lib/export')
-        const bytes = await buildPdf(pages, sources, annotations, images)
+        const bytes = await buildPdf(pages, sources, annotations, images, { stamps, formValues })
         if (!alive) return
         setOriginal(bytes)
         setPhase('ready')
@@ -56,7 +58,7 @@ export function CompressDialog({ onClose, filename }: { onClose: () => void; fil
     return () => {
       alive = false
     }
-  }, [pages, sources, annotations, images])
+  }, [pages, sources, annotations, images, stamps, formValues])
 
   function choosePreset(id: string) {
     const preset = PRESETS.find((p) => p.id === id)

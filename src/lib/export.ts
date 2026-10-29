@@ -12,7 +12,19 @@ import {
   pushGraphicsState,
   rgb,
 } from 'pdf-lib'
-import type { Annotation, FontKey, PageItem, SourceDoc, StoredImage, TextAnn } from './types'
+import type {
+  Annotation,
+  FontKey,
+  FormValues,
+  PageItem,
+  SourceDoc,
+  Stamps,
+  StoredImage,
+  TextAnn,
+  WatermarkSettings,
+} from './types'
+import { fillAndFlatten, hasForm, readFormFields } from './forms'
+import { pageNumberBox, pageNumberText } from './stamps'
 import { displaySize, hexToRgb, rotationPlacement } from './geometry'
 import { renderPageToJpeg } from './render'
 import { yieldToBrowser } from './limits'
@@ -225,6 +237,10 @@ export interface FallbackPage {
 export interface BuildOptions {
   /** strip title/author/producer metadata from the result */
   stripMetadata?: boolean
+  /** page numbers / watermark drawn on every page */
+  stamps?: Stamps
+  /** answers typed into the files' own form fields */
+  formValues?: FormValues
   onProgress?: (done: number, total: number) => void
   /** called when pages had to be flattened to images to be exportable at all */
   onFallback?: (pages: FallbackPage[]) => void
@@ -248,6 +264,97 @@ function withLayer(page: PDFPage, item: PageItem, draw: () => void | Promise<voi
   return done instanceof Promise ? done.then(pop) : pop()
 }
 
+async function drawStamps(
+  page: PDFPage,
+  stamps: Stamps,
+  index: number,
+  total: number,
+  fonts: FontCache,
+) {
+  const { width: W, height: H } = page.getSize()
+  const wm: WatermarkSettings | null = stamps.watermark
+  if (wm && wm.text.trim()) {
+    const font = await fonts.get('Helvetica', true, false)
+    const text = toWinAnsi(wm.text)
+    const tw = font.widthOfTextAtSize(text, wm.fontSize)
+    const capH = wm.fontSize * 0.7
+    const rad = (wm.angle * Math.PI) / 180
+    const c = hexToRgb(wm.color)
+    // Rotate about the page centre: start the run half its length back along
+    // the angle, and half the cap height down across it.
+    page.drawText(text, {
+      x: W / 2 - (Math.cos(rad) * tw) / 2 + (Math.sin(rad) * capH) / 2,
+      y: H / 2 - (Math.sin(rad) * tw) / 2 - (Math.cos(rad) * capH) / 2,
+      size: wm.fontSize,
+      font,
+      color: rgb(c.r, c.g, c.b),
+      opacity: wm.opacity,
+      rotate: degrees(wm.angle),
+    })
+  }
+  const pn = stamps.pageNumbers
+  if (pn) {
+    const text = pageNumberText(pn, index, total)
+    if (text) {
+      const font = await fonts.get('Helvetica', false, false)
+      const safe = toWinAnsi(text)
+      const tw = font.widthOfTextAtSize(safe, pn.fontSize)
+      const { x, top } = pageNumberBox(pn, W, H, tw)
+      const c = hexToRgb(pn.color)
+      page.drawText(safe, {
+        x,
+        // `top` is the top of the text's line box; the baseline sits ~0.8em lower.
+        y: H - top - pn.fontSize * 0.8,
+        size: pn.fontSize,
+        font,
+        color: rgb(c.r, c.g, c.b),
+      })
+    }
+  }
+}
+
+/**
+ * Fallback for forms pdf-lib can't flatten: paint the answers straight onto
+ * the page over each field, in base space.
+ */
+async function drawFormOverlay(
+  page: PDFPage,
+  item: PageItem,
+  src: SourceDoc,
+  values: Record<string, string | boolean>,
+  fonts: FontCache,
+) {
+  const fields = await readFormFields(src.proxy, src.id, item.srcIndex)
+  if (!fields.length) return
+  const font = await fonts.get('Helvetica', false, false)
+  const H = item.baseHeight
+  for (const f of fields) {
+    if (!(f.name in values)) continue
+    const v = values[f.name]
+    if (f.kind === 'checkbox') {
+      if (v) {
+        const size = Math.min(f.w, f.h) * 0.9
+        page.drawText('X', { x: f.x + (f.w - size * 0.6) / 2, y: H - f.y - f.h + (f.h - size * 0.7) / 2, size, font })
+      }
+      continue
+    }
+    if (f.kind === 'radio') {
+      if (v === f.exportValue) {
+        page.drawCircle({ x: f.x + f.w / 2, y: H - f.y - f.h / 2, size: Math.min(f.w, f.h) * 0.25, color: rgb(0, 0, 0) })
+      }
+      continue
+    }
+    const text = toWinAnsi(String(v))
+    // Hide whatever the field printed before, then write the new answer.
+    page.drawRectangle({ x: f.x, y: H - f.y - f.h, width: f.w, height: f.h, color: rgb(1, 1, 1) })
+    const size = Math.max(6, Math.min(12, f.h * (f.multiline ? 0.35 : 0.65)))
+    const lines = f.multiline ? wrapText(text, font, size, Math.max(f.w - 4, 1)) : [text]
+    lines.forEach((line, i) => {
+      page.drawText(line, { x: f.x + 2, y: H - f.y - (f.multiline ? size * (i + 1.1) : f.h / 2 + size * 0.35), size, font })
+    })
+  }
+}
+
 async function assemble(
   pages: PageItem[],
   sources: Map<string, SourceDoc>,
@@ -263,11 +370,26 @@ async function assemble(
   const rasters = new Map<string, PDFImage>()
   const embeddedImages = new Map<string, PDFImage>()
   const canvas = rasterKeys.size ? document.createElement('canvas') : null
+  const formValues = opts.formValues ?? {}
+
+  // Sources with a fillable form are filled and flattened first, because
+  // embedding a page as content drops its interactive widgets — and with them
+  // every answer, typed here or in another app. If that fails, the answers are
+  // painted on instead (overlayForms).
+  const prepared = new Map<string, Uint8Array>()
+  const overlayForms = new Set<string>()
+  for (const srcId of new Set(pages.map((p) => p.srcId))) {
+    const src = sources.get(srcId)
+    if (!src || !(await hasForm(src.proxy))) continue
+    const filled = await fillAndFlatten(src.bytes, formValues[srcId] ?? {})
+    if (filled) prepared.set(srcId, filled)
+    else overlayForms.add(srcId)
+  }
 
   const getDoc = async (srcId: string, bytes: Uint8Array) => {
     if (!loaded.has(srcId)) {
       try {
-        loaded.set(srcId, await PDFDocument.load(bytes, LOAD_OPTIONS))
+        loaded.set(srcId, await PDFDocument.load(prepared.get(srcId) ?? bytes, LOAD_OPTIONS))
       } catch {
         loaded.set(srcId, null)
       }
@@ -338,6 +460,11 @@ async function assemble(
       })
     }
 
+    const values = formValues[item.srcId]
+    if (values && Object.keys(values).length && (!doc || overlayForms.has(item.srcId))) {
+      await withLayer(page, item, () => drawFormOverlay(page, item, src, values, fonts))
+    }
+
     const anns = annotations[item.id] ?? []
     if (anns.length) {
       await withLayer(page, item, async () => {
@@ -367,6 +494,10 @@ async function assemble(
           }
         }
       })
+    }
+
+    if (opts.stamps && (opts.stamps.pageNumbers || opts.stamps.watermark)) {
+      await drawStamps(page, opts.stamps, i, pages.length, fonts)
     }
 
     opts.onProgress?.(i + 1, pages.length)
@@ -493,10 +624,10 @@ export async function buildPdf(
   }
 }
 
-export function downloadBytes(bytes: Uint8Array, filename: string) {
+export function downloadBytes(bytes: Uint8Array, filename: string, type = 'application/pdf') {
   const buf = new ArrayBuffer(bytes.byteLength)
   new Uint8Array(buf).set(bytes)
-  const url = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }))
+  const url = URL.createObjectURL(new Blob([buf], { type }))
   const a = document.createElement('a')
   a.href = url
   a.download = filename

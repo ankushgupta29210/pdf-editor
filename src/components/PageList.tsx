@@ -106,6 +106,30 @@ export function PageList() {
             {dropIndex === i && <div className="drop-line top" />}
             {dropIndex === i + 1 && <div className="drop-line bottom" />}
             <Thumb page={page} />
+            {page.id === currentPageId && pages.length > 1 && (
+              // Drag-and-drop is unreliable on phones and fiddly for keyboard
+              // users, so the current page also gets explicit move buttons.
+              <div className="thumb-move" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  title="Move page up (Alt+↑)"
+                  aria-label="Move page up"
+                  disabled={i === 0}
+                  onClick={() => movePages([page.id], i - 1)}
+                >
+                  <Icon name="up" size={14} />
+                </button>
+                <button
+                  type="button"
+                  title="Move page down (Alt+↓)"
+                  aria-label="Move page down"
+                  disabled={i === pages.length - 1}
+                  onClick={() => movePages([page.id], i + 2)}
+                >
+                  <Icon name="down" size={14} />
+                </button>
+              </div>
+            )}
             <div className="thumb-meta">
               <span>{i + 1}</span>
               {count > 0 && (

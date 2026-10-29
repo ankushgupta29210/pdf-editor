@@ -18,11 +18,14 @@ import {
 import type {
   Annotation,
   FontKey,
+  FormValues,
   PageItem,
   SourceDoc,
+  Stamps,
   StoredImage,
   Tool,
 } from '../lib/types'
+import { ensureUnlocked, type PasswordAsker } from '../lib/encryption'
 
 export interface ToolDefaults {
   color: string
@@ -40,7 +43,18 @@ export interface ToolDefaults {
 interface Snapshot {
   pages: PageItem[]
   annotations: Record<string, Annotation[]>
+  stamps: Stamps
+  formValues: FormValues
 }
+
+export interface PasswordPrompt {
+  fileName: string
+  /** shown after a wrong attempt */
+  error?: string
+}
+
+/** Resolver for the open password dialog; kept outside React state. */
+let passwordResolver: ((pw: string | null) => void) | null = null
 
 export interface Busy {
   label: string
@@ -63,6 +77,12 @@ interface State extends Snapshot {
   notice: string | null
   past: Snapshot[]
   future: Snapshot[]
+  /** set while a password-protected file waits for its password */
+  passwordPrompt: PasswordPrompt | null
+  answerPassword: (pw: string | null) => void
+  setStamps: (patch: Partial<Stamps>) => void
+  setFormValue: (srcId: string, field: string, value: string | boolean) => void
+  addAnnotations: (list: Annotation[], selectId?: string) => void
 
   addFiles: (
     files: File[],
@@ -103,11 +123,20 @@ interface State extends Snapshot {
 const HISTORY_LIMIT = 60
 
 function snapshot(s: State): Snapshot {
-  return { pages: s.pages, annotations: s.annotations }
+  return {
+    pages: s.pages,
+    annotations: s.annotations,
+    stamps: s.stamps,
+    formValues: s.formValues,
+  }
 }
+
+/** Typing into one form field is one undo step, not one per keystroke. */
+let lastFormEdit: string | null = null
 
 /** Push the pre-change state onto the undo stack. */
 function withHistory(s: State): Pick<State, 'past' | 'future'> {
+  lastFormEdit = null
   return { past: [...s.past, snapshot(s)].slice(-HISTORY_LIMIT), future: [] }
 }
 
@@ -125,6 +154,9 @@ function findAnnotation(
 export const useStore = create<State>((set, get) => ({
   pages: [],
   annotations: {},
+  stamps: { pageNumbers: null, watermark: null },
+  formValues: {},
+  passwordPrompt: null,
   sources: new Map(),
   images: new Map(),
   currentPageId: null,
@@ -181,13 +213,32 @@ export const useStore = create<State>((set, get) => ({
     const newPages: PageItem[] = []
     const failures: string[] = oversized.map((f) => fileTooLargeMessage(f.name, f.size))
     const flattened: string[] = []
+    const unlockedNames: string[] = []
 
     for (const [i, file] of withinLimit.entries()) {
       try {
         const isImage = isImageFile(file)
-        const bytes = isImage
+        let bytes = isImage
           ? await imageFileToPdfPage(file, imageOptions ?? DEFAULT_IMAGE_OPTIONS)
           : new Uint8Array(await file.arrayBuffer())
+        if (!isImage) {
+          // Password-protected or permission-restricted PDFs are decrypted once,
+          // here, so every later step (render, export, compress) sees plain bytes.
+          const ask: PasswordAsker = (fileName, error) =>
+            new Promise((resolve) => {
+              passwordResolver = resolve
+              set({ passwordPrompt: { fileName, error }, busy: null })
+            })
+          const unlocked = await ensureUnlocked(bytes, file.name, ask)
+          set({ passwordPrompt: null })
+          if (unlocked === null) {
+            failures.push(`${file.name}: skipped — no password was entered`)
+            continue
+          }
+          if (unlocked.wasEncrypted) unlockedNames.push(file.name)
+          bytes = unlocked.bytes
+          set({ busy: { label: 'Reading files', done: i, total: withinLimit.length } })
+        }
         const proxy = await openWithPdfjs(bytes)
         // pdf.js is far more forgiving than pdf-lib, so a file can display fine
         // yet be impossible to copy page-for-page on export. Find out now
@@ -249,7 +300,10 @@ export const useStore = create<State>((set, get) => ({
         notice: flattened.length
           ? `${flattened.join(', ')} ${flattened.length > 1 ? 'have' : 'has'} damaged internal structure. ` +
             'It opens fine here, but its pages will be exported as images rather than editable text.'
-          : alreadyOpen + incoming > heavyTotalBytes()
+          : unlockedNames.length
+            ? `Unlocked ${unlockedNames.join(', ')}. Your download won't carry its password or ` +
+              'restrictions — use Tools → Protect with password if it needs protecting again.'
+            : alreadyOpen + incoming > heavyTotalBytes()
             ? 'That is a lot of open data — exporting and compressing may take a while and will use a lot of memory.'
             : null,
       }
@@ -426,6 +480,34 @@ export const useStore = create<State>((set, get) => ({
 
   selectAnnotation: (selectedAnnId) => set({ selectedAnnId }),
 
+  answerPassword(pw) {
+    const resolve = passwordResolver
+    passwordResolver = null
+    resolve?.(pw)
+  },
+
+  setStamps(patch) {
+    set((s) => ({ ...withHistory(s), stamps: { ...s.stamps, ...patch } }))
+  },
+
+  setFormValue(srcId, field, value) {
+    const key = `${srcId}::${field}`
+    set((s) => ({
+      ...(lastFormEdit === key ? { past: s.past, future: [] } : withHistory(s)),
+      formValues: { ...s.formValues, [srcId]: { ...(s.formValues[srcId] ?? {}), [field]: value } },
+    }))
+    lastFormEdit = key
+  },
+
+  addAnnotations(list, selectId) {
+    if (!list.length) return
+    set((s) => {
+      const annotations = { ...s.annotations }
+      for (const a of list) annotations[a.pageId] = [...(annotations[a.pageId] ?? []), a]
+      return { ...withHistory(s), annotations, selectedAnnId: selectId ?? list.at(-1)!.id }
+    })
+  },
+
   addAnnotation(a) {
     set((s) => ({
       ...withHistory(s),
@@ -508,6 +590,8 @@ export const useStore = create<State>((set, get) => ({
         future: [snapshot(s), ...s.future].slice(0, HISTORY_LIMIT),
         pages: prev.pages,
         annotations: prev.annotations,
+        stamps: prev.stamps,
+        formValues: prev.formValues,
         selectedAnnId: null,
         currentPageId: prev.pages.some((p) => p.id === s.currentPageId)
           ? s.currentPageId
@@ -525,6 +609,8 @@ export const useStore = create<State>((set, get) => ({
         future: s.future.slice(1),
         pages: next.pages,
         annotations: next.annotations,
+        stamps: next.stamps,
+        formValues: next.formValues,
         selectedAnnId: null,
         currentPageId: next.pages.some((p) => p.id === s.currentPageId)
           ? s.currentPageId
@@ -540,6 +626,8 @@ export const useStore = create<State>((set, get) => ({
     set({
       pages: [],
       annotations: {},
+      stamps: { pageNumbers: null, watermark: null },
+      formValues: {},
       sources: new Map(),
       images: new Map(),
       currentPageId: null,

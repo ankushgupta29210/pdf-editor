@@ -13,7 +13,13 @@ export function renderPageToCanvas(
   proxy: PDFDocumentProxy,
   pageIndex: number,
   canvas: HTMLCanvasElement,
-  opts: { scale: number; rotateCw?: number; background?: string },
+  opts: {
+    scale: number
+    rotateCw?: number
+    background?: string
+    /** leave fillable form widgets off the canvas — the editor draws live inputs there */
+    hideFormFields?: boolean
+  },
 ): RenderHandle {
   let cancelled = false
   let task: { cancel(): void } | null = null
@@ -31,6 +37,8 @@ export function renderPageToCanvas(
       canvasContext: ctx,
       viewport,
       background: opts.background ?? '#ffffff',
+      // 2 = AnnotationMode.ENABLE_FORMS: widgets are left to the HTML overlay.
+      ...(opts.hideFormFields ? { annotationMode: 2 } : {}),
     })
     task = render
     try {

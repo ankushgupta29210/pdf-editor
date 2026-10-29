@@ -30,6 +30,16 @@ const PATHS: Record<string, string> = {
   info: 'M12 8h.01M11 12h1v5h1',
   page: 'M6 3h12v18H6zM9 8h6M9 12h6M9 16h3',
   ocr: 'M4 7h9M4 11h6M15.5 18.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM18 21l-2-2',
+  tools: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 17h6M17 14v6',
+  hash: 'M9 4L7 20M17 4l-2 16M4 9h16M3 15h16',
+  stamp: 'M9 4h6l-1 7h3a2 2 0 012 2v2H5v-2a2 2 0 012-2h3zM5 20h14',
+  split: 'M6 4v6a3 3 0 003 3h6a3 3 0 013 3v4M18 4v6a3 3 0 01-3 3M6 20v-4M3 7l3-3 3 3M15 17l3 3 3-3',
+  lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 017 0v3M12 15v2',
+  signature: 'M3 17c2-1 3-5 5-5s0 6 2 6 3-6 5-6 1 4 3 4M3 21h18',
+  textEdit: 'M4 6V4h10v2M9 4v14M6.5 18h5M14 20l1-4 5-5 3 3-5 5z',
+  up: 'M12 19V5M6 11l6-6 6 6',
+  down: 'M12 5v14M6 13l6 6 6-6',
+  chevron: 'M6 9l6 6 6-6',
 }
 
 export function Icon({

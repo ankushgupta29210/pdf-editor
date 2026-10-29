@@ -122,7 +122,13 @@ export function Properties() {
   return (
     <div className="panel-body">
       <div className="panel-title">
-        <span>{selected.kind === 'rect' && selected.redact ? 'Redaction box' : labelFor(selected.kind)}</span>
+        <span>
+          {selected.kind === 'rect' && selected.redact
+            ? 'Redaction box'
+            : selected.kind === 'rect' && selected.cover
+              ? 'Text cover'
+              : labelFor(selected.kind)}
+        </span>
         <div className="row-actions">
           <button title="Bring to front" onClick={() => bringToFront(selected.id)}>
             <Icon name="front" />
@@ -203,7 +209,17 @@ export function Properties() {
         </>
       )}
 
-      {selected.kind === 'rect' && selected.redact ? (
+      {selected.kind === 'rect' && selected.cover && (
+        <>
+          <p className="hint">
+            Hides the original words under an edited line. It is painted over them, so the old
+            text can still be copied out of the file — use Whiteout as well if it must be gone.
+          </p>
+          <ColorField label="Colour" value={selected.fill} onChange={(v) => patch({ fill: v ?? '#ffffff' })} />
+        </>
+      )}
+
+      {selected.kind === 'rect' && selected.cover ? null : selected.kind === 'rect' && selected.redact ? (
         <p className="hint">
           Whiteout box — the page underneath is flattened to a flat image on export, so
           whatever this covers is actually gone, not just hidden. Colour and opacity are
@@ -321,6 +337,36 @@ function ToolDefaults({
   defaults: ReturnType<typeof useStore.getState>['defaults']
   setDefaults: ReturnType<typeof useStore.getState>['setDefaults']
 }) {
+  if (tool === 'edittext') {
+    return (
+      <div className="panel-body">
+        <div className="panel-title">
+          <span>Edit text</span>
+        </div>
+        <p className="hint">
+          Click any line of text on the page to change it. The original words are covered with a
+          patch matched to the background and your edit is placed exactly on top, in the closest
+          matching font.
+        </p>
+        <p className="hint">
+          The old words are hidden, not deleted from the file. If they must be gone for good (a
+          name, an account number), use Whiteout on them as well.
+        </p>
+      </div>
+    )
+  }
+
+  if (tool === 'signature') {
+    return (
+      <div className="panel-body">
+        <div className="panel-title">
+          <span>Signature</span>
+        </div>
+        <p className="hint">Draw, type or pick a saved signature in the dialog, then drag it into place.</p>
+      </div>
+    )
+  }
+
   if (tool === 'select') {
     return (
       <div className="panel-body">
@@ -338,7 +384,7 @@ function ToolDefaults({
   return (
     <div className="panel-body">
       <div className="panel-title">
-        <span>{labelFor(tool === 'whiteout' ? 'rect' : tool)} defaults</span>
+        <span>{labelFor(tool === 'whiteout' ? 'rect' : (tool as Annotation['kind']))} defaults</span>
       </div>
       <p className="hint">Drag on the page to place it.</p>
 

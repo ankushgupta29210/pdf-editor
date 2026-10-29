@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from './state/store'
 import { PageList } from './components/PageList'
 import { PageView } from './components/PageView'
@@ -9,6 +9,15 @@ import { OcrDialog } from './components/OcrDialog'
 import { ImagesDialog } from './components/ImagesDialog'
 import { Icon } from './components/Icon'
 import { Landing } from './components/Landing'
+import {
+  ExportImagesDialog,
+  PageNumbersDialog,
+  PasswordPromptDialog,
+  ProtectDialog,
+  SplitDialog,
+  WatermarkDialog,
+  type ToolDialog,
+} from './components/ToolsDialogs'
 import { displaySize, formatBytes } from './lib/geometry'
 import type { ImageAnn, Tool } from './lib/types'
 import type { FallbackPage } from './lib/export'
@@ -27,10 +36,16 @@ function describeFallback(bad: FallbackPage[]): string {
   )
 }
 
+const SignatureDialog = lazy(() =>
+  import('./components/SignatureDialog').then((m) => ({ default: m.SignatureDialog })),
+)
+
 const TOOLS: Array<{ id: Tool; icon: string; label: string; key: string }> = [
-  { id: 'select', icon: 'select', label: 'Select & move', key: 'V' },
-  { id: 'text', icon: 'text', label: 'Text box', key: 'T' },
-  { id: 'ink', icon: 'ink', label: 'Draw / sign', key: 'D' },
+  { id: 'select', icon: 'select', label: 'Select & move / fill forms', key: 'V' },
+  { id: 'text', icon: 'text', label: 'Add text', key: 'T' },
+  { id: 'edittext', icon: 'textEdit', label: 'Edit existing text', key: 'E' },
+  { id: 'signature', icon: 'signature', label: 'Signature', key: 'S' },
+  { id: 'ink', icon: 'ink', label: 'Draw', key: 'D' },
   { id: 'highlight', icon: 'highlight', label: 'Highlight', key: 'H' },
   { id: 'rect', icon: 'rect', label: 'Rectangle', key: 'R' },
   { id: 'ellipse', icon: 'ellipse', label: 'Ellipse', key: 'O' },
@@ -53,6 +68,8 @@ export default function App() {
     busy,
     error,
     notice,
+    stamps,
+    formValues,
   } = store
 
   const [showCompress, setShowCompress] = useState(false)
@@ -60,6 +77,9 @@ export default function App() {
   const [shrinkFile, setShrinkFile] = useState<File | null>(null)
   const [showOcr, setShowOcr] = useState(false)
   const [imageQueue, setImageQueue] = useState<File[] | null>(null)
+  const [toolDialog, setToolDialog] = useState<ToolDialog | null>(null)
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [showSignature, setShowSignature] = useState(false)
   /** On narrow screens the side panels become drawers; null means both closed. */
   const [panel, setPanel] = useState<'pages' | 'props' | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -117,6 +137,8 @@ export default function App() {
     try {
       const { buildPdf, downloadBytes } = await import('./lib/export')
       const bytes = await buildPdf(pages, sources, annotations, images, {
+        stamps,
+        formValues,
         onProgress: (done, total) => store.setBusy({ label: 'Building PDF', done, total }),
         onFallback: (bad) => store.setNotice(describeFallback(bad)),
       })
@@ -135,6 +157,8 @@ export default function App() {
     try {
       const { buildPdf, downloadBytes } = await import('./lib/export')
       const bytes = await buildPdf(chosen, sources, annotations, images, {
+        stamps,
+        formValues,
         onFallback: (bad) => store.setNotice(describeFallback(bad)),
       })
       downloadBytes(bytes, filename.replace(/\.pdf$/i, '') + `-${chosen.length}-pages.pdf`)
@@ -145,21 +169,30 @@ export default function App() {
     }
   }
 
-  async function placeImage(file: File) {
+  async function placeImage(file: File, opts: { maxWidth?: number } = {}) {
     const page = pages[currentIndex]
     if (!page) return
     try {
       const stored = await store.addImageAsset(file)
-      const maxW = page.baseWidth * 0.5
+      const maxW = Math.min(opts.maxWidth ?? Infinity, page.baseWidth * 0.5)
       const scale = Math.min(maxW / stored.width, (page.baseHeight * 0.5) / stored.height, 1)
       const w = stored.width * scale
       const h = stored.height * scale
+      // Step each new image down-right if one already sits at the centre, so a
+      // second signature doesn't land exactly on top of the first.
+      let x = (page.baseWidth - w) / 2
+      let y = (page.baseHeight - h) / 2
+      const taken = (annotations[page.id] ?? []).filter((a) => a.kind === 'image')
+      while (taken.some((a) => Math.abs(a.x - x) < 4 && Math.abs(a.y - y) < 4) && y + h < page.baseHeight - 24) {
+        x += 18
+        y += 24
+      }
       const ann: ImageAnn = {
         id: uid(),
         pageId: page.id,
         kind: 'image',
-        x: (page.baseWidth - w) / 2,
-        y: (page.baseHeight - h) / 2,
+        x,
+        y,
         w,
         h,
         imageId: stored.id,
@@ -177,8 +210,39 @@ export default function App() {
       imageInput.current?.click()
       return
     }
+    if (id === 'signature') {
+      setShowSignature(true)
+      return
+    }
     store.setTool(id)
   }
+
+  /** Moves the page(s) being worked on one place up or down. */
+  function nudgePages(dir: -1 | 1) {
+    if (!targets.length) return
+    const idx = targets.map((id) => pages.findIndex((p) => p.id === id)).filter((i) => i >= 0)
+    const first = Math.min(...idx)
+    const last = Math.max(...idx)
+    if (dir < 0 && first > 0) store.movePages(targets, first - 1)
+    if (dir > 0 && last < pages.length - 1) store.movePages(targets, last + 2)
+  }
+
+  // Tell people when a file has fillable fields — it's easy to miss otherwise.
+  const formChecked = useRef(new Set<string>())
+  useEffect(() => {
+    for (const src of sources.values()) {
+      if (formChecked.current.has(src.id) || src.generated) continue
+      formChecked.current.add(src.id)
+      void import('./lib/forms').then(async ({ hasForm }) => {
+        if (await hasForm(src.proxy)) {
+          store.setNotice(
+            `${src.name} has fillable form fields. Click a field to type in it (Select tool); your answers are saved into the PDF you download.`,
+          )
+        }
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sources])
 
   useEffect(() => {
     if (panel === 'pages') setPanel(null)
@@ -204,6 +268,11 @@ export default function App() {
       if (mod && e.key.toLowerCase() === 'a') {
         e.preventDefault()
         store.selectAll()
+        return
+      }
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault()
+        nudgePages(e.key === 'ArrowUp' ? -1 : 1)
         return
       }
       if (mod && (e.key === '=' || e.key === '+')) {
@@ -424,6 +493,59 @@ export default function App() {
             </div>
           )}
 
+          <div className="group tools-menu">
+            <button
+              className={toolsOpen ? 'on' : ''}
+              onClick={() => setToolsOpen(!toolsOpen)}
+              title="More tools"
+              aria-haspopup="menu"
+              aria-expanded={toolsOpen}
+            >
+              <Icon name="tools" /> <span className="btn-label">Tools</span>
+              <span className="btn-label chev">
+                <Icon name="chevron" size={12} />
+              </span>
+            </button>
+            {toolsOpen && (
+              <>
+                <div className="menu-scrim" onClick={() => setToolsOpen(false)} />
+                <div className="menu" role="menu">
+                  {(
+                    [
+                      ['pageNumbers', 'hash', 'Page numbers', stamps.pageNumbers ? 'On' : ''],
+                      ['watermark', 'stamp', 'Watermark', stamps.watermark ? 'On' : ''],
+                      ['split', 'split', 'Split into files', ''],
+                      ['images', 'image', 'Save pages as images', ''],
+                      ['protect', 'lock', 'Protect with password', ''],
+                    ] as Array<[ToolDialog, string, string, string]>
+                  ).map(([id, icon, label, badge]) => (
+                    <button
+                      key={id}
+                      role="menuitem"
+                      onClick={() => {
+                        setToolsOpen(false)
+                        setToolDialog(id)
+                      }}
+                    >
+                      <Icon name={icon} /> {label}
+                      {badge && <span className="menu-badge">{badge}</span>}
+                    </button>
+                  ))}
+                  <button
+                    role="menuitem"
+                    className="compact-menu-only"
+                    onClick={() => {
+                      setToolsOpen(false)
+                      shrinkInput.current?.click()
+                    }}
+                  >
+                    <Icon name="file" /> Shrink a large file
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
           <div className="group">
             <button onClick={() => setShowOcr(true)} disabled={!pages.length} title="Make scanned pages searchable">
               <Icon name="ocr" /> <span className="btn-label">Make searchable</span>
@@ -568,6 +690,35 @@ export default function App() {
         <CompressDialog filename={filename} onClose={() => setShowCompress(false)} />
       )}
       {showOcr && <OcrDialog filename={filename} onClose={() => setShowOcr(false)} />}
+
+      {toolDialog === 'pageNumbers' && <PageNumbersDialog onClose={() => setToolDialog(null)} />}
+      {toolDialog === 'watermark' && <WatermarkDialog onClose={() => setToolDialog(null)} />}
+      {toolDialog === 'split' && <SplitDialog filename={filename} onClose={() => setToolDialog(null)} />}
+      {toolDialog === 'images' && <ExportImagesDialog filename={filename} onClose={() => setToolDialog(null)} />}
+      {toolDialog === 'protect' && <ProtectDialog filename={filename} onClose={() => setToolDialog(null)} />}
+
+      {showSignature && (
+        <Suspense
+          fallback={
+            <div className="busy">
+              <div className="busy-card">
+                <div className="spinner" />
+                <span>Opening signature pad</span>
+              </div>
+            </div>
+          }
+        >
+          <SignatureDialog
+            onClose={() => setShowSignature(false)}
+            onPlace={(file) => {
+              setShowSignature(false)
+              void placeImage(file, { maxWidth: 190 })
+            }}
+          />
+        </Suspense>
+      )}
+
+      <PasswordPromptDialog />
 
       {shrinkFile && <ShrinkDialog file={shrinkFile} onClose={() => setShrinkFile(null)} />}
 

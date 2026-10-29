@@ -42,9 +42,11 @@ be headers are delivered from the page itself:
 - **Content-Security-Policy** is injected as a `<meta http-equiv>` tag by the `cspMeta`
   plugin in [vite.config.ts](vite.config.ts), production builds only (the dev server needs
   an inline Fast Refresh script that the policy would block). It allows
-  `'wasm-unsafe-eval'` for the OCR engine and `tessdata.projectnaptha.com` in
-  `connect-src`, which is where tesseract.js fetches language models on first use. Any
-  third-party script you add later must be listed in `script-src` there.
+  `'wasm-unsafe-eval'` for the OCR engine and no third-party hosts at all: the OCR
+  language model is self-hosted under `/tesseract/lang` (copied from
+  `@tesseract.js-data/eng` at build time), and fonts are never inlined as `data:` URLs
+  because `font-src` is `'self'` only. Any third-party script you add later must be
+  listed in `script-src` there.
 - **Referrer-Policy** is a `<meta name="referrer">` tag in [index.html](index.html).
 - `Cache-Control` tuning is not available, but Vite's hashed `/assets/**` filenames
   make that a non-issue. `frame-ancestors`, `Permissions-Policy` and COOP cannot be
@@ -99,6 +101,27 @@ and an opaque whiteout box. Everything is drag-to-move, handle-to-resize, and st
 into the page content on export — the result is real PDF content, not annotation
 objects that a viewer might hide.
 
+**Fill forms.** PDFs with fillable fields (text, multi-line, checkboxes, radio
+buttons, dropdowns) show live inputs over each field. Answers are written into the
+file's own fields and the form is flattened on download, so they print and display the
+same everywhere.
+
+**Edit existing text.** The Edit text tool (`E`) outlines every line of text on the
+page; click one to retype it. The original is covered with a patch sampled from the
+page background and the edit is placed on the same baseline in the closest standard
+font (serif / sans / mono, bold / italic and colour are detected). The old words are
+covered, not deleted — use whiteout as well where they must be gone.
+
+**Sign.** Draw a signature (mouse, finger or pen), type one in one of four bundled
+handwriting fonts, or reuse a saved one. Saved signatures live in `localStorage` in
+that browser only.
+
+**Tools menu.** Page numbers and a watermark (both live: they renumber when pages
+move), split into files by ranges / every N pages / single pages (zipped with
+`fflate`), save pages as PNG or JPG, and password protection (AES-256 via
+`@cantoo/pdf-lib`, loaded only when used). Password-protected or permission-restricted
+PDFs are decrypted on open after asking for the password.
+
 **Compress.** Four presets from *Keep text sharp* (repack only, text stays selectable)
 through to *Strong*, with manual DPI, JPEG quality and greyscale controls. The dialog
 shows before/after byte sizes and the percentage saved before you download.
@@ -137,12 +160,15 @@ scaled rather than cropped.
 - Text uses the 14 standard PDF fonts, so it is WinAnsi-only — characters outside that
   set (CJK, for instance) are replaced with `?` on export. Embedding a custom font via
   `@pdf-lib/fontkit` would lift this.
-- Existing text in a source PDF cannot be re-typed. Editing means drawing on top of the
-  page, with whiteout to cover what is underneath.
+- Editing existing text replaces a line visually (cover + new text in a standard
+  font); it does not rewrite the original content stream, and rotated or skewed text
+  is not offered for editing.
+- Comment-type annotations from other apps (sticky notes, their highlights) are shown
+  on screen but dropped on export, because pages are re-embedded as content. Form
+  fields are the exception — they are flattened in first.
 - Compression below "keep text sharp" rasterises pages, so text stops being selectable
   and searchable. That is inherent to doing this in a browser without a Ghostscript-class
   optimiser.
-- Encrypted PDFs load only if they open without a password.
 - pdf.js (used for display) tolerates far more damage than pdf-lib (used for
   writing). A file that displays fine can still be impossible to copy page-for-page,
   so such pages are flattened to 2.2x images on export and the app says which ones.
@@ -154,7 +180,8 @@ scaled rather than cropped.
 
 ## Keyboard
 
-`V` select · `T` text · `D` draw · `H` highlight · `R` rectangle · `O` ellipse ·
-`L` line · `W` whiteout · `I` image · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
+`V` select · `T` text · `E` edit existing text · `S` signature · `D` draw ·
+`H` highlight · `R` rectangle · `O` ellipse · `L` line · `W` whiteout · `I` image ·
+`Alt+↑`/`Alt+↓` move page · `Ctrl`+wheel zoom · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+S` download · `Ctrl+A` select all pages · `Del` delete selection ·
 `Ctrl` `+`/`-` zoom · `↑`/`↓` change page · `Esc` back to select

@@ -62,6 +62,11 @@ export interface ShapeAnn extends AnnBase {
    * intact and recoverable by copying the "hidden" text or re-extracting it.
    */
   redact?: boolean
+  /**
+   * True for the background-coloured patch the Edit text tool lays over the
+   * original words. Purely visual (unlike `redact`): the page stays vector.
+   */
+  cover?: boolean
 }
 
 export interface HighlightAnn extends AnnBase {
@@ -86,7 +91,58 @@ export interface ImageAnn extends AnnBase {
 }
 
 export type Annotation = TextAnn | ShapeAnn | HighlightAnn | InkAnn | ImageAnn
-export type Tool = 'select' | 'text' | 'rect' | 'ellipse' | 'line' | 'highlight' | 'ink' | 'whiteout' | 'image'
+export type Tool =
+  | 'select'
+  | 'text'
+  | 'edittext'
+  | 'rect'
+  | 'ellipse'
+  | 'line'
+  | 'highlight'
+  | 'ink'
+  | 'whiteout'
+  | 'image'
+  | 'signature'
+
+export type StampPosition =
+  | 'bottom-center'
+  | 'bottom-right'
+  | 'bottom-left'
+  | 'top-center'
+  | 'top-right'
+  | 'top-left'
+
+export interface PageNumberSettings {
+  position: StampPosition
+  /** {n} = page number, {total} = page count */
+  format: string
+  /** number printed on the first numbered page */
+  start: number
+  fontSize: number
+  /** distance from the page edge, in points */
+  margin: number
+  /** leave the first page (a cover) unnumbered */
+  skipFirst: boolean
+  color: string
+}
+
+export interface WatermarkSettings {
+  text: string
+  fontSize: number
+  color: string
+  opacity: number
+  /** counter-clockwise degrees, as PDF measures it (45 = bottom-left to top-right) */
+  angle: number
+}
+
+/** Document-wide marks drawn on every page, kept live so they renumber on reorder. */
+export interface Stamps {
+  pageNumbers: PageNumberSettings | null
+  watermark: WatermarkSettings | null
+}
+
+/** Form field values the user typed, per source document then per field name. */
+export type FormValues = Record<string, Record<string, string | boolean>>
 
 export interface StoredImage {
   id: string

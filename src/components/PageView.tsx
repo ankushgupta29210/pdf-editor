@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { FONT_STACKS, renderPageToCanvas } from '../lib/render'
 import { displaySize, layerTransform, toBaseSpace } from '../lib/geometry'
-import type { Annotation, PageItem, ShapeAnn, StoredImage, TextAnn } from '../lib/types'
+import type { Annotation, PageItem, ShapeAnn, Stamps, StoredImage, TextAnn } from '../lib/types'
 import { uid } from '../lib/uid'
+import { readFormFields, type FormField } from '../lib/forms'
+import { readTextLines, sampleColours, type TextLine } from '../lib/textruns'
+import { pageNumberText } from '../lib/stamps'
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 type Handle = (typeof HANDLES)[number]
@@ -157,6 +160,10 @@ export function PageView() {
   const addAnnotation = useStore((s) => s.addAnnotation)
   const updateAnnotation = useStore((s) => s.updateAnnotation)
   const setTool = useStore((s) => s.setTool)
+  const addAnnotations = useStore((s) => s.addAnnotations)
+  const stamps = useStore((s) => s.stamps)
+  const formValues = useStore((s) => s.formValues)
+  const setFormValue = useStore((s) => s.setFormValue)
 
   const page = useMemo(
     () => pages.find((p) => p.id === currentPageId) ?? null,
@@ -182,13 +189,51 @@ export function PageView() {
   /** anchor corner of the box being dragged out, kept out of state for stability */
   const anchorRef = useRef<{ x: number; y: number } | null>(null)
 
+  /** Fillable fields on this page (empty for most PDFs). */
+  const [fields, setFields] = useState<FormField[]>([])
+  const [fieldsFor, setFieldsFor] = useState<string | null>(null)
+  useEffect(() => {
+    if (!proxy || !page) return
+    let alive = true
+    const key = `${page.srcId}:${page.srcIndex}`
+    readFormFields(proxy, page.srcId, page.srcIndex).then((f) => {
+      if (!alive) return
+      setFields(f)
+      setFieldsFor(key)
+    })
+    return () => {
+      alive = false
+    }
+  }, [proxy, page?.srcId, page?.srcIndex])
+  const fieldsReady = !!page && fieldsFor === `${page.srcId}:${page.srcIndex}`
+  const hasFields = fieldsReady && fields.length > 0
+
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || !proxy || !page) return
+    if (!canvas || !proxy || !page || !fieldsReady) return
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    const handle = renderPageToCanvas(proxy, page.srcIndex, canvas, { scale: zoom * dpr })
+    const handle = renderPageToCanvas(proxy, page.srcIndex, canvas, {
+      scale: zoom * dpr,
+      // Fields get live inputs on top; drawing their old appearance underneath
+      // as well would show the previous answer through the new one.
+      hideFormFields: hasFields,
+    })
     return () => handle.cancel()
-  }, [proxy, page?.srcIndex, page?.id, zoom])
+  }, [proxy, page?.srcIndex, page?.id, zoom, fieldsReady, hasFields])
+
+  /** Existing text lines, loaded only while the Edit text tool is active. */
+  const [lines, setLines] = useState<TextLine[]>([])
+  useEffect(() => {
+    if (tool !== 'edittext' || !proxy || !page) {
+      setLines([])
+      return
+    }
+    let alive = true
+    readTextLines(proxy, page.srcId, page.srcIndex).then((l) => alive && setLines(l))
+    return () => {
+      alive = false
+    }
+  }, [tool, proxy, page?.srcId, page?.srcIndex])
 
   useEffect(() => setEditingId(null), [currentPageId])
 
@@ -211,7 +256,52 @@ export function PageView() {
 
   const display = displaySize(page)
   const list = annotations[page.id] ?? []
-  const drawing = tool !== 'select' && tool !== 'image'
+  const drawing =
+    tool !== 'select' && tool !== 'image' && tool !== 'edittext' && tool !== 'signature'
+  const pageIndex = pages.findIndex((p) => p.id === page.id)
+
+  /** Turns a line of existing text into a cover patch plus an editable text box on top. */
+  function editLine(line: TextLine) {
+    if (!page) return
+    const fs = line.fontSize
+    const coverBox = { x: line.x - 1.5, y: line.baseline - fs * 0.95, w: line.w + 3, h: fs * 1.25 }
+    const { background, ink } = canvasRef.current
+      ? sampleColours(canvasRef.current, page.baseWidth, coverBox)
+      : { background: '#ffffff', ink: '#000000' }
+    const cover: ShapeAnn = {
+      id: uid(),
+      pageId: page.id,
+      kind: 'rect',
+      ...coverBox,
+      stroke: background,
+      strokeWidth: 0,
+      fill: background,
+      opacity: 1,
+      cover: true,
+    }
+    const text: TextAnn = {
+      id: uid(),
+      pageId: page.id,
+      kind: 'text',
+      x: line.x,
+      // Puts the box's baseline (≈0.93em down a 1.15 line box) on the original baseline.
+      y: line.baseline - fs * 0.93,
+      // Extra width so a slightly wider substitute font doesn't wrap the line.
+      w: Math.max(line.w * 1.25 + fs, 40),
+      h: fs * 1.15,
+      text: line.text,
+      fontSize: Math.round(fs * 2) / 2,
+      color: ink,
+      font: line.font,
+      bold: line.bold,
+      italic: line.italic,
+      align: 'left',
+      lineHeight: 1.15,
+    }
+    addAnnotations([cover, text], text.id)
+    setEditingId(text.id)
+    setTool('select')
+  }
 
   function startDraw(e: React.PointerEvent) {
     if (!drawing || !page) return
@@ -277,7 +367,7 @@ export function PageView() {
     } else {
       setDraft({
         ...common,
-        kind: tool,
+        kind: tool as 'rect' | 'ellipse' | 'line',
         stroke: defaults.color,
         strokeWidth: defaults.strokeWidth,
         fill: tool === 'line' ? null : defaults.fill,
@@ -382,6 +472,18 @@ export function PageView() {
             ref={canvasRef}
             style={{ width: page.baseWidth, height: page.baseHeight, display: 'block' }}
           />
+          {hasFields && (
+            <div className={`form-layer${tool === 'select' ? ' live' : ''}`}>
+              {fields.map((f, i) => (
+                <FormInput
+                  key={`${f.name}-${i}`}
+                  field={f}
+                  value={formValues[page.srcId]?.[f.name]}
+                  onChange={(v) => setFormValue(page.srcId, f.name, v)}
+                />
+              ))}
+            </div>
+          )}
           <div className="ann-layer">
             {list.map((a) => (
               <AnnotationBox
@@ -399,6 +501,23 @@ export function PageView() {
                 toBase={toBase}
               />
             ))}
+            {tool === 'edittext' &&
+              lines.map((l, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className="text-run"
+                  title="Click to edit this line"
+                  style={{
+                    left: l.x - 2,
+                    top: l.baseline - l.fontSize * 0.95,
+                    width: l.w + 4,
+                    height: l.fontSize * 1.25,
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => editLine(l)}
+                />
+              ))}
             {draft && (
               <div
                 className="ann"
@@ -435,8 +554,141 @@ export function PageView() {
             )}
           </div>
         </div>
+        <StampPreview stamps={stamps} index={pageIndex} total={pages.length} zoom={zoom} />
       </div>
     </div>
+  )
+}
+
+/** Live preview of page numbers and the watermark, in displayed page space. */
+function StampPreview({
+  stamps,
+  index,
+  total,
+  zoom,
+}: {
+  stamps: Stamps
+  index: number
+  total: number
+  zoom: number
+}) {
+  const wm = stamps.watermark
+  const pn = stamps.pageNumbers
+  const label = pn ? pageNumberText(pn, index, total) : null
+  if (!(wm && wm.text.trim()) && !label) return null
+  const [v, h] = (pn?.position ?? 'bottom-center').split('-')
+  return (
+    <div className="stamp-layer">
+      {wm && wm.text.trim() && (
+        <div
+          className="stamp-watermark"
+          style={{
+            fontSize: wm.fontSize * zoom,
+            color: wm.color,
+            opacity: wm.opacity,
+            transform: `translate(-50%, -50%) rotate(${-wm.angle}deg)`,
+          }}
+        >
+          {wm.text}
+        </div>
+      )}
+      {pn && label && (
+        <div
+          className="stamp-number"
+          style={{
+            fontSize: pn.fontSize * zoom,
+            color: pn.color,
+            [v === 'top' ? 'top' : 'bottom']: pn.margin * zoom,
+            ...(h === 'left'
+              ? { left: pn.margin * zoom }
+              : h === 'right'
+                ? { right: pn.margin * zoom }
+                : { left: '50%', transform: 'translateX(-50%)' }),
+          }}
+        >
+          {label}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FormInput({
+  field: f,
+  value,
+  onChange,
+}: {
+  field: FormField
+  value: string | boolean | undefined
+  onChange: (v: string | boolean) => void
+}) {
+  const box = { left: f.x, top: f.y, width: f.w, height: f.h }
+  const stop = (e: React.PointerEvent) => e.stopPropagation()
+  if (f.kind === 'checkbox' || f.kind === 'radio') {
+    const checked =
+      f.kind === 'checkbox'
+        ? Boolean(value ?? f.initial)
+        : (value ?? f.initial) === f.exportValue
+    return (
+      <label className={`form-field form-check ${f.kind}${checked ? ' on' : ''}`} style={box} title={f.name}>
+        <input
+          type={f.kind}
+          checked={checked}
+          disabled={f.readOnly}
+          name={f.kind === 'radio' ? f.name : undefined}
+          onPointerDown={stop}
+          onChange={(e) =>
+            f.kind === 'checkbox' ? onChange(e.target.checked) : e.target.checked && onChange(f.exportValue)
+          }
+        />
+        <span aria-hidden="true">{f.kind === 'checkbox' ? '✓' : '●'}</span>
+      </label>
+    )
+  }
+  const current = String(value ?? f.initial ?? '')
+  const fontSize = f.multiline ? Math.min(12, Math.max(7, f.h / 4)) : Math.max(6, Math.min(14, f.h * 0.62))
+  if (f.kind === 'select') {
+    return (
+      <select
+        className="form-field"
+        style={{ ...box, fontSize }}
+        value={current}
+        disabled={f.readOnly}
+        title={f.name}
+        onPointerDown={stop}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {!f.options.some((o) => o.value === current) && <option value={current}>{current}</option>}
+        {f.options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    )
+  }
+  return f.multiline ? (
+    <textarea
+      className="form-field"
+      style={{ ...box, fontSize }}
+      value={current}
+      readOnly={f.readOnly}
+      maxLength={f.maxLen ?? undefined}
+      title={f.name}
+      onPointerDown={stop}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ) : (
+    <input
+      className="form-field"
+      style={{ ...box, fontSize }}
+      value={current}
+      readOnly={f.readOnly}
+      maxLength={f.maxLen ?? undefined}
+      title={f.name}
+      onPointerDown={stop}
+      onChange={(e) => onChange(e.target.value)}
+    />
   )
 }
 
