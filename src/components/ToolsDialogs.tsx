@@ -5,7 +5,15 @@ import { pageNumberText } from '../lib/stamps'
 import type { PageNumberSettings, StampPosition, WatermarkSettings } from '../lib/types'
 import { Icon } from './Icon'
 
-export type ToolDialog = 'pageNumbers' | 'watermark' | 'split' | 'images' | 'protect'
+export type ToolDialog =
+  | 'pageNumbers'
+  | 'watermark'
+  | 'split'
+  | 'images'
+  | 'protect'
+  | 'toWord'
+  | 'toExcel'
+  | 'toPowerPoint'
 
 /** Shared modal frame. */
 function Modal({
@@ -737,6 +745,143 @@ export function PasswordPromptDialog() {
         />
       </div>
       {prompt.error && <p className="error-text">{prompt.error}</p>}
+    </Modal>
+  )
+}
+
+// --------------------------------------------------------- PDF → Office
+
+const OFFICE = {
+  toWord: {
+    title: 'Convert to Word',
+    ext: 'docx',
+    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    modes: [
+      { id: 'editable', label: 'Editable text', hint: 'Paragraphs, headings, bold/italic, colours and pictures rebuilt as a normal Word document you can edit.' },
+      { id: 'exact', label: 'Exact look', hint: 'Every page placed as a picture — looks identical, but the text is not editable.' },
+    ],
+  },
+  toExcel: {
+    title: 'Convert to Excel',
+    ext: 'xlsx',
+    mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    modes: [
+      { id: 'perPage', label: 'A sheet per page', hint: 'Each page becomes its own sheet. Columns come from how the text lines up; numbers, money and percentages become real numbers.' },
+      { id: 'single', label: 'All on one sheet', hint: 'Every page stacked on one sheet, one blank row between pages — best for a long table that runs across pages.' },
+    ],
+  },
+  toPowerPoint: {
+    title: 'Convert to PowerPoint',
+    ext: 'pptx',
+    mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    modes: [
+      { id: 'editable', label: 'Editable text', hint: 'One slide per page: the page as the background with its text lifted into real, editable text boxes on top.' },
+      { id: 'pictures', label: 'Pages as pictures', hint: 'One slide per page, each page as a picture — exact look, nothing editable.' },
+    ],
+  },
+} as const
+
+export function ConvertOutDialog({
+  kind,
+  onClose,
+  filename,
+}: {
+  kind: 'toWord' | 'toExcel' | 'toPowerPoint'
+  onClose: () => void
+  filename: string
+}) {
+  const cfg = OFFICE[kind]
+  const [mode, setMode] = useState<string>(cfg.modes[0].id)
+  const [images, setImages] = useState(true)
+  const [working, setWorking] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [scanned, setScanned] = useState(false)
+
+  async function run() {
+    setError(null)
+    setScanned(false)
+    try {
+      setWorking('Preparing…')
+      const bytes = await buildCurrent()
+      const mod = await import('../lib/pdf-to-office')
+      const onProgress = (p: { page: number; total: number }) => setWorking(`Converting page ${p.page} of ${p.total}…`)
+      let out: Uint8Array
+      if (kind === 'toWord') out = await mod.pdfToWord(bytes, { mode: mode as 'editable' | 'exact', images, onProgress })
+      else if (kind === 'toExcel') out = await mod.pdfToExcel(bytes, { sheets: mode as 'perPage' | 'single', onProgress })
+      else out = await mod.pdfToPowerPoint(bytes, { mode: mode as 'editable' | 'pictures', onProgress })
+      if (mode !== 'exact' && mode !== 'pictures') {
+        // A scan has no text layer: warn rather than hand back an empty file.
+        const { openWithPdfjs } = await import('../lib/pdfjs')
+        const doc = await openWithPdfjs(bytes)
+        let chars = 0
+        for (let i = 1; i <= Math.min(doc.numPages, 5) && chars < 20; i++) {
+          const t = await (await doc.getPage(i)).getTextContent()
+          chars += t.items.reduce((n, it) => n + ('str' in it ? it.str.trim().length : 0), 0)
+        }
+        void doc.destroy()
+        if (chars < 20) {
+          setScanned(true)
+          setWorking(null)
+          return
+        }
+      }
+      const { downloadBytes } = await import('../lib/export')
+      downloadBytes(out, `${baseName(filename)}.${cfg.ext}`, cfg.mime)
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Conversion failed.')
+    } finally {
+      setWorking(null)
+    }
+  }
+
+  const current = cfg.modes.find((m) => m.id === mode)!
+  return (
+    <Modal
+      icon="convert"
+      title={cfg.title}
+      onClose={onClose}
+      busy={!!working}
+      footer={
+        <>
+          <button className="ghost" onClick={onClose} disabled={!!working}>
+            Cancel
+          </button>
+          <button className="primary" disabled={!!working} onClick={run}>
+            <Icon name="download" /> {working ?? `Download .${cfg.ext}`}
+          </button>
+        </>
+      }
+    >
+      <div className="seg wide">
+        {cfg.modes.map((m) => (
+          <button key={m.id} className={mode === m.id ? 'on' : ''} onClick={() => setMode(m.id)}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <p className="hint" style={{ marginTop: 10 }}>
+        {current.hint}
+      </p>
+      {kind === 'toWord' && mode === 'editable' && (
+        <label className="check standalone">
+          <input type="checkbox" checked={images} onChange={(e) => setImages(e.target.checked)} />
+          Include pictures
+        </label>
+      )}
+      <p className="hint">
+        Converted right here in your browser — the file isn't uploaded. Your edits, page numbers
+        and watermark are included. Layouts are rebuilt from the page, so complex designs may need
+        a little tidying afterwards.
+      </p>
+      {scanned && (
+        <p className="hint warn-text">
+          This looks like a scanned document — it has no text to convert yet. Run{' '}
+          <strong>Make searchable</strong> first, or choose the{' '}
+          {kind === 'toPowerPoint' ? '“Pages as pictures”' : kind === 'toWord' ? '“Exact look”' : 'Word “Exact look”'} option.
+        </p>
+      )}
+      {error && <p className="error-text">{error}</p>}
     </Modal>
   )
 }

@@ -45,7 +45,12 @@ if (existsSync(coreDir)) {
 // downloading them from cdn.jsdelivr.net, which the production CSP blocks (and
 // which would break the "nothing leaves this site" promise). The "best_int"
 // variant is the one tesseract.js picks for the default LSTM-only engine.
-const LANGS = ['eng']
+// Keep in step with OCR_LANGUAGES in src/lib/ocr.ts.
+const LANGS = [
+  'eng', 'spa', 'fra', 'deu', 'por', 'ita', 'nld', 'pol', 'tur', 'vie', 'ind',
+  'rus', 'ukr', 'ell', 'ara', 'heb', 'hin', 'ben', 'tha',
+  'chi_sim', 'chi_tra', 'jpn', 'kor',
+]
 for (const lang of LANGS) {
   const src = join(root, 'node_modules', '@tesseract.js-data', lang, '4.0.0_best_int', `${lang}.traineddata.gz`)
   if (existsSync(src)) {

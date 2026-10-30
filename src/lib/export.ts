@@ -25,6 +25,8 @@ import type {
 } from './types'
 import { fillAndFlatten, hasForm, readFormFields } from './forms'
 import { pageNumberBox, pageNumberText } from './stamps'
+import { AnnotationCarrier, type PageTransform } from './annotations'
+import { removeTextLines } from './textedit'
 import { displaySize, hexToRgb, rotationPlacement } from './geometry'
 import { renderPageToJpeg } from './render'
 import { yieldToBrowser } from './limits'
@@ -365,6 +367,7 @@ async function assemble(
 ): Promise<Uint8Array> {
   const out = await PDFDocument.create()
   const fonts = new FontCache(out)
+  const carrier = new AnnotationCarrier(out)
   const loaded = new Map<string, PDFDocument | null>()
   const embedded = new Map<string, PDFEmbeddedPage>()
   const rasters = new Map<string, PDFImage>()
@@ -404,7 +407,42 @@ async function assemble(
     const key = pageKey(item)
     const display = displaySize(item)
     const page = out.addPage([display.w, display.h])
-    const doc = rasterKeys.has(key) ? null : await getDoc(item.srcId, src.bytes)
+    // Parsed even for flattened pages, so links pointing at them still resolve.
+    const parsed = await getDoc(item.srcId, src.bytes)
+    const doc = rasterKeys.has(key) ? null : parsed
+
+    /**
+     * How the source page lands on the exported one: crop offset removed,
+     * rotated by the page's own /Rotate plus the user's rotation, moved back
+     * into the positive quadrant. Used for the content and for annotations.
+     */
+    let fwd: PageTransform | null = null
+    let ccw = 0
+    /** cover patches made unnecessary because the old words were removed */
+    const removedCovers = new Set<string>()
+    const anns = annotations[item.id] ?? []
+    if (parsed) {
+      const srcPage = parsed.getPage(item.srcIndex)
+      const crop = srcPage.getCropBox()
+      const intrinsic = srcPage.getRotation().angle
+      const totalCw = (((intrinsic + item.rotate) % 360) + 360) % 360
+      const swapped = totalCw % 180 === 90
+      const w0 = swapped ? display.h : display.w
+      const h0 = swapped ? display.w : display.h
+      const place = rotationPlacement(totalCw, w0, h0)
+      const sx = w0 / Math.max(crop.width, 1e-6)
+      const sy = h0 / Math.max(crop.height, 1e-6)
+      const rad = (place.ccw * Math.PI) / 180
+      const cos = Math.round(Math.cos(rad))
+      const sin = Math.round(Math.sin(rad))
+      ccw = place.ccw
+      fwd = (x, y) => {
+        const px = (x - crop.x) * sx
+        const py = (y - crop.y) * sy
+        return [place.tx + cos * px - sin * py, place.ty + sin * px + cos * py]
+      }
+      carrier.registerTarget(parsed, srcPage.ref, page, fwd)
+    }
 
     if (!doc) {
       // Flattened fallback: render the page with pdf.js and place the image in
@@ -429,9 +467,28 @@ async function assemble(
         }),
       )
     } else {
-      let ep = embedded.get(key)
+      // Edited lines: take the old words out of this page's own content. The
+      // page is edited in a private copy, so a duplicate of it (or another
+      // page of the same file) is unaffected.
+      let srcDocForPage = doc
+      let embedKey = key
+      const edits = anns.filter((a): a is TextAnn => a.kind === 'text' && !!a.replaces)
+      if (edits.length) {
+        try {
+          const copy = await PDFDocument.load(prepared.get(item.srcId) ?? src.bytes, LOAD_OPTIONS)
+          const done = removeTextLines(copy, item.srcIndex, edits.map((a) => a.replaces!))
+          if (done.some(Boolean)) {
+            edits.forEach((a, k) => done[k] && removedCovers.add(a.replaces!.coverId))
+            srcDocForPage = copy
+            embedKey = `${key}#${item.id}`
+          }
+        } catch {
+          // Leave the page as it was; the cover patch still hides the old line.
+        }
+      }
+      let ep = embedded.get(embedKey)
       if (!ep) {
-        const srcPage = doc.getPage(item.srcIndex)
+        const srcPage = srcDocForPage.getPage(item.srcIndex)
         // pdf-lib embeds by MediaBox but pdf.js measures pages by CropBox, so on
         // a cropped PDF the two disagree. Embed the CropBox to keep them in step.
         const crop = srcPage.getCropBox()
@@ -441,7 +498,7 @@ async function assemble(
           right: crop.x + crop.width,
           top: crop.y + crop.height,
         })
-        embedded.set(key, ep)
+        embedded.set(embedKey, ep)
       }
 
       // Total rotation = whatever the source page already declares + the user's.
@@ -458,6 +515,15 @@ async function assemble(
         height: h0,
         rotate: degrees(place.ccw),
       })
+      // Comments, highlights and links from the source page. (Flattened
+      // pages already have them painted into the image by pdf.js.)
+      if (fwd && parsed) {
+        try {
+          carrier.copyPage(parsed, item.srcIndex, page, fwd, ccw)
+        } catch {
+          // A malformed annotation shouldn't cost the whole export.
+        }
+      }
     }
 
     const values = formValues[item.srcId]
@@ -465,10 +531,10 @@ async function assemble(
       await withLayer(page, item, () => drawFormOverlay(page, item, src, values, fonts))
     }
 
-    const anns = annotations[item.id] ?? []
     if (anns.length) {
       await withLayer(page, item, async () => {
         for (const a of anns) {
+          if (a.kind === 'rect' && a.cover && removedCovers.has(a.id)) continue
           if (a.kind === 'text') {
             await drawText(page, a, item.baseHeight, fonts)
           } else if (a.kind === 'image') {
@@ -505,6 +571,8 @@ async function assemble(
     // the progress indicator stays alive on long documents.
     if (pages.length > 4) await yieldToBrowser()
   }
+
+  carrier.finish()
 
   if (opts.stripMetadata) {
     out.setTitle('')

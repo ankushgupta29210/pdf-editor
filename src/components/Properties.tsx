@@ -212,8 +212,9 @@ export function Properties() {
       {selected.kind === 'rect' && selected.cover && (
         <>
           <p className="hint">
-            Hides the original words under an edited line. It is painted over them, so the old
-            text can still be copied out of the file — use Whiteout as well if it must be gone.
+            Hides the original words while you edit. On download the old words are normally
+            removed from the page and this patch is left out; it's only used where the file's text
+            can't be changed safely.
           </p>
           <ColorField label="Colour" value={selected.fill} onChange={(v) => patch({ fill: v ?? '#ffffff' })} />
         </>
@@ -344,13 +345,13 @@ function ToolDefaults({
           <span>Edit text</span>
         </div>
         <p className="hint">
-          Click any line of text on the page to change it. The original words are covered with a
-          patch matched to the background and your edit is placed exactly on top, in the closest
-          matching font.
+          Click any line of text on the page to change it. Your edit is placed exactly where the
+          old words were, in the closest matching font, size and colour.
         </p>
         <p className="hint">
-          The old words are hidden, not deleted from the file. If they must be gone for good (a
-          name, an account number), use Whiteout on them as well.
+          When you download, the old words are removed from the page itself — they can't be
+          copied or searched for. If a file stores its text in a way that can't be safely changed,
+          the old line is covered instead (use Whiteout if it must be gone for certain).
         </p>
       </div>
     )

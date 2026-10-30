@@ -17,7 +17,16 @@ export function OcrDialog({ onClose, filename }: { onClose: () => void; filename
 
   const [phase, setPhase] = useState<Phase>('preparing')
   const [message, setMessage] = useState('')
-  const [lang, setLang] = useState(OCR_LANGUAGES[0].code)
+  const [lang, setLang] = useState(() => {
+    // Remember the last language picked, in this browser only.
+    try {
+      const saved = localStorage.getItem('pdfeditor.ocrLang')
+      if (saved && OCR_LANGUAGES.some((l) => l.code === saved)) return saved
+    } catch {
+      /* storage unavailable */
+    }
+    return OCR_LANGUAGES[0].code
+  })
   const [progress, setProgress] = useState<OcrProgress | null>(null)
   const [original, setOriginal] = useState<Uint8Array | null>(null)
   const [result, setResult] = useState<Uint8Array | null>(null)
@@ -100,19 +109,24 @@ export function OcrDialog({ onClose, filename }: { onClose: () => void; filename
                 Scans and photographed pages don't carry real text — you can't search or select
                 anything on them. This reads every page with on-device OCR and adds an invisible,
                 positioned text layer behind it, so the page looks exactly the same but becomes
-                searchable and selectable. The first time you run this, your browser loads a
-                small language model (about 3 MB, from this site, cached afterwards) — the
-                pages themselves are never uploaded anywhere.
+                searchable and selectable. The first time you use a language, your browser loads
+                its model (1–3 MB, from this site, cached afterwards) — the pages themselves are
+                never uploaded anywhere.
               </p>
 
               {OCR_LANGUAGES.length > 1 && (
                 <div className="field">
-                  <label>Language</label>
+                  <label>Language of the document</label>
                   <select
                     value={lang}
                     onChange={(e) => {
                       setLang(e.target.value)
                       setResult(null)
+                      try {
+                        localStorage.setItem('pdfeditor.ocrLang', e.target.value)
+                      } catch {
+                        /* storage unavailable */
+                      }
                     }}
                     disabled={phase === 'working'}
                   >
@@ -122,6 +136,9 @@ export function OcrDialog({ onClose, filename }: { onClose: () => void; filename
                       </option>
                     ))}
                   </select>
+                  {lang !== 'eng' && (
+                    <span className="hint">English is read as well, for names and numbers.</span>
+                  )}
                 </div>
               )}
 

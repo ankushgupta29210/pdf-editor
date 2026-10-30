@@ -46,4 +46,9 @@ export async function openWithPdfjs(
   }).promise
 }
 
+/** The pdf.js module itself, for constants like OPS (operator codes). */
+export function pdfjsLib() {
+  return pdfjs()
+}
+
 export type { PDFDocumentProxy }

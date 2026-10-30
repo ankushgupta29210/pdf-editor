@@ -26,6 +26,7 @@ import type {
   Tool,
 } from '../lib/types'
 import { ensureUnlocked, type PasswordAsker } from '../lib/encryption'
+import { isLegacyOfficeFile, isOfficeFile, legacyMessage, officeToPdf } from '../lib/office-common'
 
 export interface ToolDefaults {
   color: string
@@ -151,6 +152,14 @@ function findAnnotation(
   return null
 }
 
+const OFFICE_WARNINGS: Record<string, string> = {
+  charts: 'Charts could not be drawn and were left out.',
+  smartart: 'SmartArt graphics were drawn without their text effects.',
+  media: 'Videos and sounds were left out.',
+  emf: 'Some old-format pictures (EMF/WMF) could not be shown and were left out.',
+  formulas: 'Some formulas had no saved result, so their cells are empty — open and save the file in Excel first.',
+}
+
 export const useStore = create<State>((set, get) => ({
   pages: [],
   annotations: {},
@@ -183,11 +192,16 @@ export const useStore = create<State>((set, get) => ({
   future: [],
 
   async addFiles(files, insertAt, imageOptions) {
+    const legacy = files.filter(isLegacyOfficeFile)
     const accepted = files.filter(
-      (f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name) || isImageFile(f),
+      (f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name) || isImageFile(f) || isOfficeFile(f),
     )
     if (!accepted.length) {
-      set({ error: 'Only PDFs and image files can be added.' })
+      set({
+        error: legacy.length
+          ? legacyMessage(legacy[0].name)
+          : 'Only PDFs, images and Word, Excel or PowerPoint files can be added.',
+      })
       return
     }
 
@@ -211,17 +225,33 @@ export const useStore = create<State>((set, get) => ({
     })
     const newSources: SourceDoc[] = []
     const newPages: PageItem[] = []
-    const failures: string[] = oversized.map((f) => fileTooLargeMessage(f.name, f.size))
+    const failures: string[] = [
+      ...legacy.map((f) => legacyMessage(f.name)),
+      ...oversized.map((f) => fileTooLargeMessage(f.name, f.size)),
+    ]
+    const converted: string[] = []
+    const leftOut = new Set<string>()
     const flattened: string[] = []
     const unlockedNames: string[] = []
 
     for (const [i, file] of withinLimit.entries()) {
       try {
         const isImage = isImageFile(file)
-        let bytes = isImage
-          ? await imageFileToPdfPage(file, imageOptions ?? DEFAULT_IMAGE_OPTIONS)
-          : new Uint8Array(await file.arrayBuffer())
-        if (!isImage) {
+        const isOffice = !isImage && isOfficeFile(file)
+        let bytes: Uint8Array
+        if (isImage) bytes = await imageFileToPdfPage(file, imageOptions ?? DEFAULT_IMAGE_OPTIONS)
+        else if (isOffice) {
+          const label = `Converting ${file.name}`
+          set({ busy: { label, done: 0, total: 100 } })
+          const result = await officeToPdf(file, (f) =>
+            set({ busy: { label, done: Math.round(f * 100), total: 100 } }),
+          )
+          bytes = result.bytes
+          converted.push(file.name)
+          for (const w of result.warnings) leftOut.add(w)
+          set({ busy: { label: 'Reading files', done: i, total: withinLimit.length } })
+        } else bytes = new Uint8Array(await file.arrayBuffer())
+        if (!isImage && !isOffice) {
           // Password-protected or permission-restricted PDFs are decrypted once,
           // here, so every later step (render, export, compress) sees plain bytes.
           const ask: PasswordAsker = (fileName, error) =>
@@ -297,7 +327,9 @@ export const useStore = create<State>((set, get) => ({
             ? failures[0]
             : `Skipped ${failures.length} files. ${failures[0]}`
           : null,
-        notice: flattened.length
+        notice: leftOut.size
+          ? `Converted ${converted.join(', ')}. ${[...leftOut].map((w) => OFFICE_WARNINGS[w] ?? w).join(' ')}`
+          : flattened.length
           ? `${flattened.join(', ')} ${flattened.length > 1 ? 'have' : 'has'} damaged internal structure. ` +
             'It opens fine here, but its pages will be exported as images rather than editable text.'
           : unlockedNames.length

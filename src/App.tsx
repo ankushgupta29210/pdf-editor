@@ -10,6 +10,7 @@ import { ImagesDialog } from './components/ImagesDialog'
 import { Icon } from './components/Icon'
 import { Landing } from './components/Landing'
 import {
+  ConvertOutDialog,
   ExportImagesDialog,
   PageNumbersDialog,
   PasswordPromptDialog,
@@ -22,6 +23,7 @@ import { displaySize, formatBytes } from './lib/geometry'
 import type { ImageAnn, Tool } from './lib/types'
 import type { FallbackPage } from './lib/export'
 import { IMAGE_ACCEPT, isImageFile, type ImagePageOptions } from './lib/image'
+import { OFFICE_ACCEPT, isOfficeFile } from './lib/office-common'
 import { maxFileBytes } from './lib/limits'
 import { uid } from './lib/uid'
 
@@ -98,8 +100,8 @@ export default function App() {
   function intake(files: File[]) {
     const pdfs = files.filter((f) => !isImageFile(f))
     const imgs = files.filter(isImageFile)
-    const huge = pdfs.filter((f) => f.size > maxFileBytes())
-    const rest = pdfs.filter((f) => f.size <= maxFileBytes())
+    const huge = pdfs.filter((f) => f.size > maxFileBytes() && !isOfficeFile(f))
+    const rest = pdfs.filter((f) => !huge.includes(f))
     if (huge.length) setShrinkFile(huge[0])
     if (rest.length) void store.addFiles(rest)
     if (imgs.length) setImageQueue(imgs)
@@ -386,7 +388,7 @@ export default function App() {
       <input
         ref={fileInput}
         type="file"
-        accept={`application/pdf,${IMAGE_ACCEPT}`}
+        accept={`application/pdf,${IMAGE_ACCEPT},${OFFICE_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -517,6 +519,9 @@ export default function App() {
                       ['split', 'split', 'Split into files', ''],
                       ['images', 'image', 'Save pages as images', ''],
                       ['protect', 'lock', 'Protect with password', ''],
+                      ['toWord', 'convert', 'Convert to Word (.docx)', ''],
+                      ['toExcel', 'convert', 'Convert to Excel (.xlsx)', ''],
+                      ['toPowerPoint', 'convert', 'Convert to PowerPoint (.pptx)', ''],
                     ] as Array<[ToolDialog, string, string, string]>
                   ).map(([id, icon, label, badge]) => (
                     <button
@@ -696,6 +701,9 @@ export default function App() {
       {toolDialog === 'split' && <SplitDialog filename={filename} onClose={() => setToolDialog(null)} />}
       {toolDialog === 'images' && <ExportImagesDialog filename={filename} onClose={() => setToolDialog(null)} />}
       {toolDialog === 'protect' && <ProtectDialog filename={filename} onClose={() => setToolDialog(null)} />}
+      {(toolDialog === 'toWord' || toolDialog === 'toExcel' || toolDialog === 'toPowerPoint') && (
+        <ConvertOutDialog kind={toolDialog} filename={filename} onClose={() => setToolDialog(null)} />
+      )}
 
       {showSignature && (
         <Suspense

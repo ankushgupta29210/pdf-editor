@@ -36,8 +36,24 @@ interface AnnBase {
   h: number
 }
 
+/** A line of the source page's own text, in its PDF coordinates (see lib/textedit.ts). */
+export interface LineSource {
+  ox: number
+  oy: number
+  dx: number
+  dy: number
+  len: number
+  size: number
+}
+
 export interface TextAnn extends AnnBase {
   kind: 'text'
+  /**
+   * Set by the Edit text tool: the original line this text replaces. On
+   * export that line is removed from the page itself, and the cover patch
+   * (`coverId`) is only drawn if removal wasn't possible.
+   */
+  replaces?: LineSource & { coverId: string }
   text: string
   fontSize: number
   color: string

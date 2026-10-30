@@ -45,8 +45,10 @@ const FEATURES: Array<{ icon: ReactElement; title: string; body: string }> = [
         <path d="m4 16 4.5-4.5L12 15l3-3 5 5" />
       </svg>
     ),
-    title: 'Images to PDF',
-    body: 'PNG, JPEG, WebP, AVIF, GIF, BMP or SVG — turned into pages at the size you pick.',
+    title: 'Convert both ways',
+    body:
+      'Word, Excel, PowerPoint and images become real PDFs with selectable text — and PDFs go back ' +
+      'to editable Word, Excel or PowerPoint files.',
   },
   {
     icon: (
@@ -145,7 +147,7 @@ export function Landing({ onChooseFiles, onImagesToPdf, onShrinkBigPdf }: Props)
             <span><Check />No sign-up</span>
             <span><Check />Free, forever</span>
           </div>
-          <p className="drop-hint">…or drop PDFs and images anywhere on this page.</p>
+          <p className="drop-hint">…or drop PDFs, images, or Word, Excel and PowerPoint files anywhere on this page.</p>
         </div>
 
         <div className="panel-stage" aria-hidden="true">

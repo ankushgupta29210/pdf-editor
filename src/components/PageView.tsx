@@ -297,6 +297,7 @@ export function PageView() {
       italic: line.italic,
       align: 'left',
       lineHeight: 1.15,
+      replaces: { ...line.src, coverId: cover.id },
     }
     addAnnotations([cover, text], text.id)
     setEditingId(text.id)
@@ -508,6 +509,7 @@ export function PageView() {
                   type="button"
                   className="text-run"
                   title="Click to edit this line"
+                  aria-label={`Edit: ${l.text}`}
                   style={{
                     left: l.x - 2,
                     top: l.baseline - l.fontSize * 0.95,

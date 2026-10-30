@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from './pdfjs'
-import type { FontKey } from './types'
+import type { FontKey, LineSource } from './types'
 
 /** One line of existing page text, in base space (top-left origin, points). */
 export interface TextLine {
@@ -12,6 +12,8 @@ export interface TextLine {
   font: FontKey
   bold: boolean
   italic: boolean
+  /** the same line in the page's own PDF coordinates, for removing it on export */
+  src: LineSource
 }
 
 interface RawItem {
@@ -86,6 +88,7 @@ export function readTextLines(
         }
         // getTextContent reports widths in page units; the viewport is scale 1.
         const width = raw.width
+        const ulen = Math.hypot(a, b) || 1
         runs.push({
           text: raw.str,
           x: tx,
@@ -93,6 +96,7 @@ export function readTextLines(
           w: width,
           fontSize,
           ...guessFont(realName, style?.fontFamily ?? ''),
+          src: { ox: e, oy: f, dx: a / ulen, dy: b / ulen, len: width, size: Math.hypot(c, d) || fontSize },
         })
       }
 
@@ -112,8 +116,12 @@ export function readTextLines(
           const needsSpace = gap > r.fontSize * 0.15 && !last.text.endsWith(' ') && !r.text.startsWith(' ')
           last.text += (needsSpace ? ' ' : '') + r.text
           last.w = r.x + r.w - last.x
+          // Extend the PDF-space baseline to the end of this run as well.
+          const endX = r.src.ox + r.src.dx * r.src.len - last.src.ox
+          const endY = r.src.oy + r.src.dy * r.src.len - last.src.oy
+          last.src = { ...last.src, len: Math.max(last.src.len, endX * last.src.dx + endY * last.src.dy) }
         } else {
-          lines.push({ ...r })
+          lines.push({ ...r, src: { ...r.src } })
         }
       }
       return lines.map((l) => ({ ...l, text: l.text.replace(/\s+/g, ' ').trim() })).filter((l) => l.text)

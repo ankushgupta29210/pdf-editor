@@ -1,4 +1,14 @@
-import { PDFDocument, PDFFont, PDFPage, StandardFonts } from 'pdf-lib'
+import {
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFOperator,
+  PDFPage,
+  PDFRef,
+  type PDFOperatorNames,
+} from 'pdf-lib'
+import { addGlyphlessFont, utf16Hex } from './glyphless'
 import { openWithPdfjs } from './pdfjs'
 import { renderPageToJpeg } from './render'
 import { yieldToBrowser } from './limits'
@@ -16,9 +26,42 @@ export interface OcrLanguage {
   label: string
 }
 
-/** Languages with self-hosted worker/core assets ready to go. Tesseract
- *  supports many more; add here once you want to offer them. */
-export const OCR_LANGUAGES: OcrLanguage[] = [{ code: 'eng', label: 'English' }]
+/**
+ * Languages whose models ship with the site (see
+ * scripts/copy-tesseract-assets.mjs — keep the two lists in step). Each model
+ * is 1–3 MB and is only downloaded the first time someone picks it.
+ */
+export const OCR_LANGUAGES: OcrLanguage[] = [
+  { code: 'eng', label: 'English' },
+  { code: 'spa', label: 'Spanish — Español' },
+  { code: 'fra', label: 'French — Français' },
+  { code: 'deu', label: 'German — Deutsch' },
+  { code: 'por', label: 'Portuguese — Português' },
+  { code: 'ita', label: 'Italian — Italiano' },
+  { code: 'nld', label: 'Dutch — Nederlands' },
+  { code: 'pol', label: 'Polish — Polski' },
+  { code: 'tur', label: 'Turkish — Türkçe' },
+  { code: 'vie', label: 'Vietnamese — Tiếng Việt' },
+  { code: 'ind', label: 'Indonesian — Bahasa Indonesia' },
+  { code: 'rus', label: 'Russian — Русский' },
+  { code: 'ukr', label: 'Ukrainian — Українська' },
+  { code: 'ell', label: 'Greek — Ελληνικά' },
+  { code: 'ara', label: 'Arabic — العربية' },
+  { code: 'heb', label: 'Hebrew — עברית' },
+  { code: 'hin', label: 'Hindi — हिन्दी' },
+  { code: 'ben', label: 'Bengali — বাংলা' },
+  { code: 'tha', label: 'Thai — ไทย' },
+  { code: 'chi_sim', label: 'Chinese (Simplified) — 简体中文' },
+  { code: 'chi_tra', label: 'Chinese (Traditional) — 繁體中文' },
+  { code: 'jpn', label: 'Japanese — 日本語' },
+  { code: 'kor', label: 'Korean — 한국어' },
+]
+
+/** Tesseract language string: other languages also read English, since
+ *  real documents mix in English names, numbers and headings. */
+export function tesseractLangs(code: string): string {
+  return code === 'eng' ? 'eng' : `${code}+eng`
+}
 
 export interface OcrProgress {
   page: number
@@ -27,11 +70,11 @@ export interface OcrProgress {
   fraction: number
 }
 
-/** pdf-lib's standard fonts only cover WinAnsi; swap anything else for a
- *  placeholder so a stray recognised character can't fail the whole save(). */
-function toWinAnsi(text: string): string {
-  return text.replace(/[^\x00-\xFF€‘’“”–—•…]/g, '?')
-}
+const op = (name: string, ...args: Array<number | PDFName | PDFHexString>) =>
+  PDFOperator.of(
+    name as PDFOperatorNames,
+    args.map((a) => (typeof a === 'number' ? PDFNumber.of(a) : a)),
+  )
 
 function flattenWords(page: Tesseract.Page): Tesseract.Word[] {
   const out: Tesseract.Word[] = []
@@ -62,7 +105,7 @@ export async function makeSearchable(
   const base = import.meta.env.BASE_URL
 
   const [doc, proxy] = await Promise.all([PDFDocument.load(bytes), openWithPdfjs(bytes)])
-  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const font = addGlyphlessFont(doc)
   const pages = doc.getPages()
   const total = pages.length
 
@@ -78,7 +121,7 @@ export async function makeSearchable(
   // on its own); don't let this side promise surface as an unhandled rejection.
   loadFailed.catch(() => undefined)
   const worker = await Promise.race([
-    Tesseract.createWorker(lang, undefined, {
+    Tesseract.createWorker(tesseractLangs(lang).split('+'), undefined, {
       workerPath: `${base}tesseract/worker.min.js`,
       corePath: `${base}tesseract/`,
       // Self-hosted model (copied by scripts/copy-tesseract-assets.mjs), so
@@ -87,7 +130,7 @@ export async function makeSearchable(
       errorHandler: (err: unknown) =>
         failLoad(
           new Error(
-            `Could not load the ${lang} OCR model (${String(err).replace(/^Error:\s*/, '')}). ` +
+            `Could not load the ${OCR_LANGUAGES.find((l) => l.code === lang)?.label.split(' — ')[0] ?? lang} OCR model (${String(err).replace(/^Error:\s*/, '')}). ` +
               'Check your connection and try again.',
           ),
         ),
@@ -122,34 +165,44 @@ function placeInvisibleText(
   page: PDFPage,
   words: Tesseract.Word[],
   shot: { width: number; height: number; pointWidth: number; pointHeight: number },
-  font: PDFFont,
+  fontRef: PDFRef,
 ) {
   const scaleX = shot.pointWidth / shot.width
   const scaleY = shot.pointHeight / shot.height
+  const fontName = PDFName.of('FOcrText')
+  page.node.setFontDictionary(fontName, fontRef)
 
+  const ops: PDFOperator[] = [op('q'), op('BT'), op('Tr', 3)]
   for (const word of words) {
-    const text = toWinAnsi(word.text?.trim() ?? '')
+    const text = (word.text ?? '').trim()
     if (!text || word.confidence < MIN_CONFIDENCE) continue
+    // PDF text is stored in visual (left-to-right) order and extractors apply
+    // the bidi algorithm when reading it back, so right-to-left words
+    // (Arabic, Hebrew) are written reversed to come out in reading order.
+    const visual = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(text)
+      ? [...text].reverse().join('')
+      : text
+    const hex = utf16Hex(visual)
+    if (!hex) continue
     const { x0, y0, x1, y1 } = word.bbox
     const wPt = (x1 - x0) * scaleX
     const hPt = (y1 - y0) * scaleY
     if (wPt <= 0 || hPt <= 0) continue
-
-    const xPt = x0 * scaleX
     // pdf.js/Tesseract measure from the top-left; PDF space is bottom-left.
-    const yPt = shot.pointHeight - y1 * scaleY
-
-    // Helvetica's metrics won't match whatever font the scan was printed in,
-    // so the run is stretched to the OCR'd word's own width — that keeps a
-    // "find in page" highlight roughly where the real word sits, even though
-    // these glyphs are never actually seen (opacity 0 below).
-    const natural = font.widthOfTextAtSize(text, hPt) || 1
-    const size = Math.max(1, Math.min(hPt * 1.35, (wPt / natural) * hPt))
-
-    try {
-      page.drawText(text, { x: xPt, y: yPt, size, font, opacity: 0 })
-    } catch {
-      // A handful of unencodable glyphs shouldn't sink the rest of the page.
-    }
+    const xPt = x0 * scaleX
+    const yPt = shot.pointHeight - y1 * scaleY + hPt * 0.15
+    const size = Math.max(1, hPt)
+    // Every glyph is 0.5 em wide (DW 500), so horizontal scaling stretches the
+    // run to the word's real width — a search highlight then covers the word.
+    const natural = (hex.length / 4) * 0.5 * size
+    const tz = Math.max(1, Math.min(2000, (wPt / natural) * 100))
+    ops.push(
+      op('Tf', fontName, size),
+      op('Tz', tz),
+      op('Tm', 1, 0, 0, 1, xPt, yPt),
+      op('Tj', PDFHexString.of(hex)),
+    )
   }
+  ops.push(op('ET'), op('Q'))
+  page.pushOperators(...ops)
 }

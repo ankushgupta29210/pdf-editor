@@ -40,6 +40,7 @@ const PATHS: Record<string, string> = {
   up: 'M12 19V5M6 11l6-6 6 6',
   down: 'M12 5v14M6 13l6 6 6-6',
   chevron: 'M6 9l6 6 6-6',
+  convert: 'M4 7h12l-3-3M20 17H8l3 3M4 7v4M20 17v-4',
 }
 
 export function Icon({
